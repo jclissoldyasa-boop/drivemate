@@ -37,6 +37,7 @@
       </intent-filter>
     </activity>
     <service android:name=".TrackerService" android:exported="false" android:foregroundServiceType="location"/>
+    <receiver android:name=".Reminder" android:exported="false"/>
     <receiver android:name=".BootReceiver" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.BOOT_COMPLETED"/>

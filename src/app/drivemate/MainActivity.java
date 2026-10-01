@@ -42,6 +42,7 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private boolean loaded, pendingEnd;
+    private String pendingOdo;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraUri;
     private long askedAt;
@@ -94,6 +95,7 @@ public class MainActivity extends Activity {
             @Override public void onPageFinished(WebView v, String url) {
                 loaded = true;
                 if (pendingEnd) { pendingEnd = false; js("window.dmNative&&window.dmNative('end')"); }
+                if (pendingOdo != null) { openOdo(pendingOdo); pendingOdo = null; }
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -103,6 +105,7 @@ public class MainActivity extends Activity {
         });
 
         pendingEnd = getIntent().getBooleanExtra("end", false);
+        pendingOdo = getIntent().getStringExtra("odo");
         String auth = authCode(getIntent());
         if (auth != null) web.loadUrl(HOME + "auth/done#code=" + auth);
         else if (saved != null) web.restoreState(saved);
@@ -114,6 +117,11 @@ public class MainActivity extends Activity {
         String auth = authCode(intent);
         if (auth != null) {
             if (loaded) js("window.dmAuth&&window.dmAuth('" + auth + "')"); else web.loadUrl(HOME + "auth/done#code=" + auth);
+            return;
+        }
+        String odo = intent.getStringExtra("odo");
+        if (odo != null) {
+            if (loaded) openOdo(odo); else pendingOdo = odo;
             return;
         }
         if (intent.getBooleanExtra("end", false)) {
@@ -142,6 +150,11 @@ public class MainActivity extends Activity {
     }
 
     private void js(String code) { web.evaluateJavascript(code, null); }
+
+    /** Opens the Record odometer screen for a vehicle (from a reminder notification). */
+    private void openOdo(String vid) {
+        js("window.dmNative&&window.dmNative('odo'," + JSONObject.quote(vid) + ")");
+    }
 
     /**
      * The one-time code from a Google/Facebook sign-in, arriving either as the App Link
@@ -311,6 +324,11 @@ public class MainActivity extends Activity {
                 askedAt = SystemClock.elapsedRealtime();
                 requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, REQ_BT);
             });
+        }
+
+        @JavascriptInterface public void setReminder(String json) {
+            try { new JSONObject(json); } catch (Exception e) { return; }
+            Reminder.configure(MainActivity.this, json);
         }
 
         @JavascriptInterface public void setBtCars(String json) {

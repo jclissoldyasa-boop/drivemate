@@ -316,6 +316,18 @@ function readings(vid){ // every known odometer point for a vehicle
 function odoAt(vid,ts){ const r=readings(vid).filter(p=>p.ts<=ts); return r.length? Math.max(...r.map(p=>p.odo)) : currentOdo(vid); }
 function currentOdo(vid){ const r=readings(vid); return r.length? Math.max(...r.map(p=>p.odo)) : 0; }
 function lastWeekly(vid){ return S.odo.filter(o=>o.vid===vid).sort((a,b)=>b.ts-a.ts)[0]||null; }
+const odoDue = vid => { const lw=lastWeekly(vid); return !lw || (Date.now()-lw.ts)>7*864e5; };
+const DAYS=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+function reminderCfg(){ return Object.assign({on:true,day:0,time:"18:00"},S.settings.reminder||{}); }
+// Give the app the reminder time and each vehicle's last reading; it schedules the weekly notification.
+let reminderSent=null;
+function pushReminder(){
+  if(!NATIVE||typeof NATIVE.setReminder!=="function") return;
+  const r=reminderCfg(), [h,m]=r.time.split(":").map(Number);
+  const j=JSON.stringify({on:!!r.on,day:+r.day,hour:h||0,min:m||0,vehicles:S.vehicles.map(v=>({id:v.id,name:v.name,last:lastWeekly(v.id)?.ts||0}))});
+  if(j===reminderSent) return;
+  try{ NATIVE.setReminder(j); reminderSent=j; }catch(e){}
+}
 function periodStats(vid,from,to){
   const trips=S.trips.filter(t=>t.vid===vid&&t.startTs>=from&&t.startTs<to&&t.endOdo!=null);
   const biz=trips.filter(t=>t.type==="business").reduce((a,t)=>a+tripKm(t),0);
@@ -408,8 +420,9 @@ function syncFromNative(){
     try{ NATIVE.startTrip(String(S.live.startTs)); }catch(e){}
   }
 }
-window.dmNative=function(evt){
+window.dmNative=function(evt,arg){
   syncFromNative();
+  if(evt==="odo"){ closeAllScreens(); tab="drive"; render(); if(veh(arg)) odoSheet(null,arg); return; }
   if(evt==="end" && S.live){ closeAllScreens(); tab="drive"; render(); endTripSheet(); return; }
   if(!screenStack.length) render();
 };
@@ -462,7 +475,7 @@ function renderTabs(){
   $("#tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>go(b.dataset.tab));
 }
 function render(){
-  pushBtCars();
+  pushBtCars(); pushReminder();
   renderTabs();
   clearInterval(tick);
   const app=$("#app");
@@ -815,6 +828,7 @@ function drive(){
   ${vehicleChips(v.id)}
   ${due&&!L?`<div class="banner"><strong>Weekly odometer due.</strong> ${lw?`Last reading ${fmtKm(lw.value)} km on ${dFmt(lw.ts)}.`:"No weekly reading yet."}
     <div class="row" style="margin-top:8px"><input id="wkOdo" class="odo" inputmode="numeric" autocomplete="off" placeholder="Odometer now" aria-label="Odometer reading now"><button class="btn" id="wkSave" style="flex:0 0 auto">Save</button></div></div>`:""}
+  ${(()=>{ const others=L?[]:S.vehicles.filter(x=>x.id!==v.id&&odoDue(x.id)); return others.length?`<div class="banner"><strong>Also due:</strong> ${others.map(x=>`<button class="linkbtn" data-odov="${x.id}" style="padding:4px 0;margin-right:14px">${esc(x.name)}</button>`).join("")}</div>`:""; })()}
   <div class="plate-wrap">${odoPlate(L?L.startOdo:currentOdo(v.id))}<div class="plate-sub">${esc(v.name)}${v.rego?` · ${esc(v.rego)}`:""}</div></div>
   ${body}
   <h2>${fyLabel(fy)} so far</h2>
@@ -834,6 +848,7 @@ function bindDrive(){
   const on=$("#odoNow"); if(on) on.onclick=()=>odoSheet(null);
   const fu=$("#fuelUp"); if(fu) fu.onclick=()=>expSheet(null,"Fuel");
   const ae=$("#addExpD"); if(ae) ae.onclick=()=>expSheet(null,"Maintenance & servicing");
+  document.querySelectorAll("[data-odov]").forEach(b=>b.onclick=()=>odoSheet(null,b.dataset.odov));
   const ws=$("#wkSave"); if(ws) ws.onclick=async()=>{ const val=+$("#wkOdo").value; const v=activeVeh(); if(!val||val<0){ toast("Enter the odometer reading"); return;} if(val<currentOdo(v.id)-1 && !await ask("That's lower than the last known reading. Save anyway?","Save anyway")) return; S.odo.push({id:uid(),vid:v.id,ts:Date.now(),value:val,note:"Weekly reading"}); persist(); render(); toast("Odometer saved"); };
   if(S.live){
     const el=$("#elapsed"); const upd=()=>{ const m=Math.floor((Date.now()-S.live.startTs)/60000); el.textContent=`${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`; };
@@ -1009,8 +1024,8 @@ function tripSheet(t){
     const d=$("#tdel",root); if(d) d.onclick=async()=>{ if(!await ask("Delete this trip?")) return; S.trips=S.trips.filter(x=>x.id!==t.id); persist({months:[monthKey(t.startTs)]}); close(); render(); toast("Trip deleted"); };
   });
 }
-function odoSheet(o){
-  const v=activeVeh(); const isNew=!o; const base=o||{vid:v.id,ts:Date.now(),value:"",note:"Weekly reading"};
+function odoSheet(o,vid){
+  const v=veh(vid)||activeVeh(); const isNew=!o; const base=o||{vid:v.id,ts:Date.now(),value:"",note:"Weekly reading"};
   sheet(isNew?"Record odometer":"Edit reading",`
     <label for="ov">Vehicle</label><select id="ov">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===base.vid?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
     <div class="row"><div><label for="od">Date</label><input id="od" type="date" value="${isoDate(base.ts)}"></div><div><label for="oval">Odometer (km)</label><input id="oval" class="odo" inputmode="numeric" autocomplete="off" value="${base.value}"></div></div>
@@ -1269,6 +1284,25 @@ function webAutoPanel(){
   </div>
 `;
 }
+function reminderPanel(){
+  const r=reminderCfg(), p=nPerms();
+  return `<h2>Odometer reminders</h2>
+  <div class="panel">
+    <label class="check" style="margin-top:0"><input type="checkbox" id="remOn" ${r.on?"checked":""}> Remind me to record the odometer each week</label>
+    <div class="row" ${r.on?"":"hidden"} id="remWhen"><div><label for="remDay">Day</label><select id="remDay">${DAYS.map((d,i)=>`<option value="${i}" ${i===+r.day?"selected":""}>${d}</option>`).join("")}</select></div>
+      <div><label for="remTime">Time</label><input id="remTime" type="time" value="${esc(r.time)}"></div></div>
+    <p class="small muted" style="margin-top:8px">Each vehicle without a reading in the past week gets its own notification. Tap it to record the reading.</p>
+    ${r.on&&!p.notif?`<ul class="list" style="margin-top:6px"><li class="chk"><span><span class="no" aria-hidden="true">!</span> Notifications are off</span><button class="btn ghost" id="remNot" style="flex:0 0 auto;min-height:40px;padding:0 14px">Allow</button></li></ul>`:""}
+  </div>`;
+}
+function bindReminderPanel(){
+  const on=$("#remOn"); if(!on) return;
+  const save=msg=>{ S.settings.reminder={on:on.checked,day:+$("#remDay").value,time:$("#remTime").value||"18:00"}; persist(); render(); if(msg) toast(msg); };
+  on.onchange=()=>{ save(on.checked?"Weekly reminder on":"Weekly reminder off"); if(on.checked&&!nPerms().notif){ try{ NATIVE.askNotifications(); }catch(e){} } };
+  $("#remDay").onchange=()=>save(`Reminder set for ${DAYS[+$("#remDay").value]}s`);
+  $("#remTime").onchange=()=>save("Reminder time saved");
+  const n=$("#remNot"); if(n) n.onclick=()=>{ try{ NATIVE.askNotifications(); }catch(e){} };
+}
 function autoPanel(){
   const st=nState(), p=nPerms();
   const row=(ok,label,id,btn)=>`<li class="chk"><span><span class="${ok?"ok":"no"}" aria-hidden="true">${ok?"✓":"!"}</span> ${label}</span>${ok?`<span class="small muted">Done</span>`:`<button class="btn ghost" id="${id}" style="flex:0 0 auto;min-height:40px;padding:0 14px">${btn}</button>`}</li>`;
@@ -1300,6 +1334,7 @@ function setup(){
     <label class="check"><input type="checkbox" id="mc" ${S.settings.medicare?"checked":""}> Add 2% Medicare levy to the saving estimate</label>
     <p class="note">Cents per km uses ${Math.round(rateFor(fyOf(Date.now()))*100)}c for ${fyLabel(fyOf(Date.now()))}, capped at 5,000 business km per car.</p>
   </div>
+  ${NATIVE?reminderPanel():""}
   ${NATIVE?autoPanel():webAutoPanel()}
   ${accountPanel()}
   ${helpPanel()}
@@ -1322,6 +1357,7 @@ function bindSetup(){
   $("#mc").onchange=e=>{ S.settings.medicare=e.target.checked; persist(); };
   const ts=$("#testStart"); if(ts) ts.onclick=()=>{ tab="drive"; startTrip(activeVeh()?.id); };
   if(NATIVE){
+    bindReminderPanel();
     const ao=$("#autoOn"); if(ao) ao.onchange=e=>{ try{ NATIVE.setAuto(e.target.checked); if(e.target.checked&&!nPerms().fine) NATIVE.askLocation(); }catch(err){} toast(e.target.checked?"Automatic trips on":"Automatic trips off"); };
     [["pLoc","askLocation"],["pBg","askLocation"],["pBt","askBluetooth"],["pNot","askNotifications"],["pBat","askBattery"]].forEach(([id,fn])=>{ const b=$("#"+id); if(b) b.onclick=()=>{ try{ NATIVE[fn](); }catch(err){} }; });
   }
