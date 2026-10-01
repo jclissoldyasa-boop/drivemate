@@ -58,10 +58,10 @@ async function route(req, env, url) {
     await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(user.tokenHash).run();
     return json({ ok: true });
   }
+  if (p === "/api/password" && m === "POST") return changePassword(req, env, user);
+  if (p === "/api/recovery" && m === "POST") return newRecovery(req, env, user);
   if (p === "/api/account" && m === "DELETE") {
-    const body = await readJson(req);
-    const row = await env.DB.prepare("SELECT pass FROM users WHERE id = ?").bind(user.id).first();
-    if (!(await verify(String(body.password || ""), row.pass))) throw new HttpError(403, "That password isn't right.");
+    await checkPassword(env, user, (await readJson(req)).password);
     await env.DB.batch([
       env.DB.prepare("DELETE FROM docs WHERE user_id = ?").bind(user.id),
       env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id),
@@ -179,6 +179,36 @@ async function reset(req, env) {
     env.DB.prepare("DELETE FROM attempts WHERE key = ?").bind(key),
   ]);
   return json({ token: await newSession(env, user.id), email, recovery: next });
+}
+
+/** Signed-in password change. Other devices are signed out; this one stays signed in. */
+async function changePassword(req, env, user) {
+  const body = await readJson(req);
+  const password = String(body.password || "");
+  await checkPassword(env, user, body.current);
+  if (password.length < 8) throw new HttpError(400, "Use at least 8 characters for the new password.");
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET pass = ? WHERE id = ?").bind(await hash(password), user.id),
+    env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?").bind(user.id, user.tokenHash),
+  ]);
+  return json({ ok: true });
+}
+
+/** Replaces a lost recovery code. */
+async function newRecovery(req, env, user) {
+  const body = await readJson(req);
+  await checkPassword(env, user, body.password);
+  const code = recoveryCode();
+  await env.DB.prepare("UPDATE users SET recovery = ? WHERE id = ?").bind(await hash(normCode(code)), user.id).run();
+  return json({ recovery: code });
+}
+
+async function checkPassword(env, user, password) {
+  const key = "password:" + user.id;
+  await limit(env, key, 10, 15 * 60e3, "Too many tries. Wait 15 minutes and try again.");
+  const row = await env.DB.prepare("SELECT pass FROM users WHERE id = ?").bind(user.id).first();
+  if (!(await verify(String(password || ""), row.pass))) throw new HttpError(403, "Your current password isn't right.");
+  await env.DB.prepare("DELETE FROM attempts WHERE key = ?").bind(key).run();
 }
 
 async function credentials(req, strict = true) {

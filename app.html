@@ -445,11 +445,10 @@ function accountScreen(){
     <form id="aForm" novalidate>
       <label for="aEmail">Email</label><input id="aEmail" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="off">
       <label for="aPass">Password</label><input id="aPass" name="password" type="password" autocomplete="${c?"new-password":"current-password"}" ${c?'minlength="8"':""}>
-      ${c?`<p class="small muted" style="margin-top:6px">At least 8 characters.</p>`:""}
+      ${c?`<p class="small muted" style="margin-top:6px">At least 8 characters.</p>`:`<div style="text-align:right"><button class="linkbtn" id="aForgot" type="button" style="padding:8px 0">Forgot your password?</button></div>`}
       <div class="err" id="aErr"></div>
       <button class="btn road block" id="aGo" type="submit" style="margin-top:8px">${c?"Create account":"Sign in"}</button>
     </form>
-    ${c?"":`<button class="linkbtn" id="aForgot">Forgot your password?</button>`}
   </div>
   <button class="linkbtn" id="aSkip" style="margin-top:12px">Use without an account</button>
   <p class="small muted">Without an account, everything is kept only on this ${NATIVE?"phone":"device"}. You can create an account later in Setup.</p>`;
@@ -470,7 +469,7 @@ function bindAccount(){
 }
 function resetSheet(){
   sheet("Reset password",`
-    <p class="muted small" style="margin-top:12px">Enter the recovery code you saved when you created your account.</p>
+    <p class="muted small" style="margin-top:12px">Enter the recovery code you saved when you created your account, then choose a new password.</p>
     <label for="rEmail">Email</label><input id="rEmail" name="email" type="email" autocomplete="username" autocapitalize="off" value="${esc(($("#aEmail")||{}).value||"")}">
     <label for="rCode">Recovery code</label><input id="rCode" autocapitalize="characters" autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX">
     <label for="rPass">New password</label><input id="rPass" name="new-password" type="password" autocomplete="new-password">
@@ -486,12 +485,49 @@ function resetSheet(){
 }
 function recoverySheet(code,isNew){
   sheet("Save your recovery code",`
-    <p style="margin-top:12px">${isNew?"Your account is ready.":"Your password has been changed, and you have a new recovery code. The old one no longer works."}</p>
+    <p style="margin-top:12px">${isNew==="new"?"Here's your new recovery code. The old one no longer works.":isNew?"Your account is ready.":"Your password has been changed, and you have a new recovery code. The old one no longer works."}</p>
     <p>If you forget your password, this code is the only way back into your account. Write it down or keep it in your password manager.</p>
     <div class="panel" style="text-align:center;margin:14px 0"><code style="font-size:20px;letter-spacing:1px;background:none" id="rcCode">${esc(code)}</code></div>
     <button class="btn ghost block" id="rcCopy">Copy code</button>
     <button class="btn road block" data-close style="margin-top:10px">I've saved it</button>`,
   (root)=>{ $("#rcCopy",root).onclick=async()=>{ try{ await navigator.clipboard.writeText(code); toast("Code copied"); }catch(e){ toast("Copy isn't available — write it down"); } }; });
+}
+// The hidden username lets password managers update the right saved login.
+const pwUser = () => `<input type="text" name="username" autocomplete="username" value="${esc(account?account.email:"")}" hidden>`;
+function passwordSheet(){
+  sheet("Change password",`<form id="pwForm" novalidate>${pwUser()}
+    <label for="pwCur">Current password</label><input id="pwCur" name="current-password" type="password" autocomplete="current-password">
+    <label for="pwNew">New password</label><input id="pwNew" name="new-password" type="password" autocomplete="new-password" minlength="8">
+    <p class="small muted" style="margin-top:6px">At least 8 characters. Your other devices will be signed out.</p>
+    <div class="err" id="pwErr"></div>
+    <div class="actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn road" id="pwGo" type="submit">Change password</button></div></form>
+    <div style="text-align:center"><button class="linkbtn" id="pwForgot">Forgot your current password?</button></div>`,
+  (root,close)=>{
+    $("#pwForgot",root).onclick=()=>{ close(); resetSheet(); };
+    $("#pwForm",root).onsubmit=async ev=>{
+      ev.preventDefault();
+      const b=$("#pwGo",root), err=$("#pwErr",root); err.textContent="";
+      if($("#pwNew",root).value.length<8){ err.textContent="Use at least 8 characters for the new password."; return; }
+      b.disabled=true;
+      try{ await api("password",{method:"POST",body:{current:$("#pwCur",root).value,password:$("#pwNew",root).value}}); close(); toast("Password changed"); }
+      catch(e){ err.textContent=e.message; b.disabled=false; }
+    };
+  });
+}
+function recoveryCodeSheet(){
+  sheet("New recovery code",`<form id="rcForm" novalidate>${pwUser()}
+    <p style="margin-top:12px">Lost your recovery code? Get a new one here. Your old code will stop working.</p>
+    <label for="rcPass">Enter your password</label><input id="rcPass" name="password" type="password" autocomplete="current-password">
+    <div class="err" id="rcErr"></div>
+    <div class="actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn road" id="rcGo" type="submit">Get new code</button></div></form>`,
+  (root,close)=>{
+    $("#rcForm",root).onsubmit=async ev=>{
+      ev.preventDefault();
+      const b=$("#rcGo",root); b.disabled=true;
+      try{ const res=await api("recovery",{method:"POST",body:{password:$("#rcPass",root).value}}); close(); recoverySheet(res.recovery,"new"); }
+      catch(e){ $("#rcErr",root).textContent=e.message; b.disabled=false; }
+    };
+  });
 }
 function accountPanel(){
   if(inClaude()) return "";
@@ -499,7 +535,9 @@ function accountPanel(){
     <button class="btn road block" id="acSignIn">Create account or sign in</button></div>`;
   return `<h2>Account</h2><div class="panel">
     <p class="small muted" style="margin:0">Signed in as</p><p style="font-weight:600;word-break:break-all">${esc(account.email)}</p>
-    <button class="btn ghost block" id="acOut" style="margin-top:12px">Sign out</button>
+    <button class="btn ghost block" id="acPw" style="margin-top:12px">Change password</button>
+    <button class="btn ghost block" id="acRc" style="margin-top:10px">Get a new recovery code</button>
+    <button class="btn ghost block" id="acOut" style="margin-top:10px">Sign out</button>
     <button class="btn danger block" id="acDel" style="margin-top:10px">Delete account</button></div>`;
 }
 function bindAccountPanel(){
@@ -513,6 +551,8 @@ function bindAccountPanel(){
     try{ await api("logout",{method:"POST"}); }catch(e){}
     clearPhone(); setSync("Signed out"); render(); toast("Signed out");
   };
+  const pw=$("#acPw"); if(pw) pw.onclick=passwordSheet;
+  const rc=$("#acRc"); if(rc) rc.onclick=recoveryCodeSheet;
   const del=$("#acDel"); if(del) del.onclick=()=>sheet("Delete account",`
     <p style="margin-top:12px">This permanently deletes your account and every vehicle, trip, reading and expense saved in it. It can't be undone.</p>
     <p class="small muted">Want a copy first? Use “Save a DriveMate data file” in Setup before deleting.</p>
