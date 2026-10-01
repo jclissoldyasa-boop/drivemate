@@ -847,7 +847,8 @@ function endTripSheet(){
     <p class="small" id="egap" style="color:var(--warn)"></p>
     <label for="ep">Reason for the trip <span class="muted">(optional)</span></label><input id="ep" value="${esc(L.purpose)}" placeholder="Optional">
     <div class="err" id="eerr"></div>
-    <div class="actions"><button class="btn ghost" data-close>Keep driving</button><button class="btn biz" id="esave">Save trip</button></div>`,
+    <div class="actions"><button class="btn ghost" data-close>Keep driving</button><button class="btn biz" id="esave">Save trip</button></div>
+    <button class="linkbtn" id="ediscard">Discard this trip</button>`,
   (root,close)=>{
     let mode="km";
     const km=$("#ekm",root), eo=$("#eeo",root), so=$("#eso",root), calc=$("#ecalc",root);
@@ -858,6 +859,7 @@ function endTripSheet(){
       $("#emKm",root).classList.toggle("hidden",mode!=="km"); $("#emOdo",root).classList.toggle("hidden",mode!=="odo");
       if(mode==="odo"&&e>+so.value) eo.value=e; if(mode==="km"&&+eo.value>+so.value) km.value=+eo.value-(+so.value); upd(); (mode==="km"?km:eo).focus(); });
     [km,eo,so].forEach(i=>i.oninput=upd); upd(); km.focus();
+    $("#ediscard",root).onclick=async()=>{ if(await ask("Discard this trip? Nothing will be saved.","Discard trip")){ S.live=null; stopGps(); persist(); close(); render(); toast("Trip discarded"); } };
     $("#esave",root).onclick=()=>{
       const s=+so.value, e=endVal(), p=$("#ep",root).value.trim();
       if(!e||e<=s&&mode==="km"&&!(+km.value)){ $("#eerr",root).textContent= mode==="km"?"Enter the kilometres travelled.":"Enter the end odometer."; return; }
