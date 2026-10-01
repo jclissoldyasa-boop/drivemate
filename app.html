@@ -89,6 +89,18 @@ input[type=checkbox]{width:auto}
 .quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .quick button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 11px;font-size:14px}
 .list{list-style:none;margin:0;padding:0}
+.vpic{display:block;object-fit:cover;border-radius:10px}
+.chip{display:inline-flex;align-items:center;gap:6px}
+.chip-pic{display:inline-flex;margin-left:-6px}.chip-pic .vpic{border-radius:50%;width:24px;height:24px}
+.drive-pic{display:flex;justify-content:center;margin-bottom:12px}
+.list-pic{flex:0 0 auto;display:flex;align-items:center}
+.vpic-preview{display:flex;justify-content:center;align-items:center;min-height:96px;margin:6px 0 8px}
+.car-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.car-opt{background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:8px 4px;display:flex;justify-content:center;min-height:52px}
+.car-opt[aria-pressed="true"]{border-color:var(--biz);background:var(--biz-soft)}
+.swatches{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.swatch{width:34px;height:34px;border-radius:50%;border:2px solid var(--line);padding:0}
+.swatch[aria-pressed="true"]{outline:3px solid var(--ink);outline-offset:2px}
 .swipe{position:relative;overflow:hidden}
 .swipe .item{position:relative;background:var(--bg);transition:transform .2s;touch-action:pan-y}
 .swipe-under{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-weight:700;color:var(--muted);background:var(--line)}
@@ -492,7 +504,7 @@ const LOGO="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAQDAwMDAgQDA
 function header(title){ return title?`<h1>${title}</h1>`:""; }
 function vehicleChips(sel,onAttr="data-veh"){
   if(S.vehicles.length<2) return "";
-  return `<div class="chips" role="group" aria-label="Vehicle">${S.vehicles.map(v=>`<button class="chip" ${onAttr}="${v.id}" aria-pressed="${v.id===sel}">${esc(v.name)}</button>`).join("")}</div>`;
+  return `<div class="chips" role="group" aria-label="Vehicle">${S.vehicles.map(v=>`<button class="chip" ${onAttr}="${v.id}" aria-pressed="${v.id===sel}">${v.pic?`<span class="chip-pic">${vehPic(v,30)}</span>`:""}${esc(v.name)}</button>`).join("")}</div>`;
 }
 
 /* ---------- Google / Facebook sign-in, terms, storage notice ---------- */
@@ -792,7 +804,7 @@ function welcome(){
   <div class="err" id="verr"></div>
   <button class="btn road block" id="vsave" style="margin-top:14px">Add vehicle</button></div>`;
 }
-function bindWelcome(){ $("#vsave").onclick=()=>saveVehicle(null,true); bindVehBt(); }
+function bindWelcome(){ $("#vsave").onclick=()=>saveVehicle(null,true); bindVehBt(); bindVehPic(); }
 
 /* ---------- drive ---------- */
 function odoPlate(n){
@@ -829,7 +841,7 @@ function drive(){
   ${due&&!L?`<div class="banner"><strong>Weekly odometer due.</strong> ${lw?`Last reading ${fmtKm(lw.value)} km on ${dFmt(lw.ts)}.`:"No weekly reading yet."}
     <div class="row" style="margin-top:8px"><input id="wkOdo" class="odo" inputmode="numeric" autocomplete="off" placeholder="Odometer now" aria-label="Odometer reading now"><button class="btn" id="wkSave" style="flex:0 0 auto">Save</button></div></div>`:""}
   ${(()=>{ const others=L?[]:S.vehicles.filter(x=>x.id!==v.id&&odoDue(x.id)); return others.length?`<div class="banner"><strong>Also due:</strong> ${others.map(x=>`<button class="linkbtn" data-odov="${x.id}" style="padding:4px 0;margin-right:14px">${esc(x.name)}</button>`).join("")}</div>`:""; })()}
-  <div class="plate-wrap">${odoPlate(L?L.startOdo:currentOdo(v.id))}<div class="plate-sub">${esc(v.name)}${v.rego?` · ${esc(v.rego)}`:""}</div></div>
+  <div class="plate-wrap">${v.pic?`<div class="drive-pic">${vehPic(v,140)}</div>`:""}${odoPlate(L?L.startOdo:currentOdo(v.id))}<div class="plate-sub">${esc(v.name)}${v.rego?` · ${esc(v.rego)}`:""}</div></div>
   ${body}
   <h2>${fyLabel(fy)} so far</h2>
   <div class="panel"><div class="stats">
@@ -901,16 +913,19 @@ function endTripSheet(){
   (root,close)=>{
     let mode="km";
     const km=$("#ekm",root), eo=$("#eeo",root), so=$("#eso",root), calc=$("#ecalc",root);
-    const endVal=()=> mode==="km" ? (+so.value)+Math.round(+km.value||0) : +eo.value;
-    const upd=()=>{ const e=endVal(), s=+so.value; calc.textContent = (e&&e>=s) ? (mode==="km"?`End odometer will be ${fmtKm(e)} km`:`${fmtKm(e-s)} km travelled`) : "";
+    // A blank start odometer means "carry on from the last known reading", never 0.
+    const fallback=odoAt(L.vid,L.startTs); so.placeholder=fmtKm(fallback);
+    const startVal=()=> so.value==="" ? fallback : +so.value;
+    const endVal=()=> mode==="km" ? startVal()+Math.round(+km.value||0) : +eo.value;
+    const upd=()=>{ const e=endVal(), s=startVal(); calc.textContent = (so.value===""?`Start odometer blank, so using the last reading of ${fmtKm(fallback)} km. `:"")+((e&&e>=s) ? (mode==="km"?`End odometer will be ${fmtKm(e)} km`:`${fmtKm(e-s)} km travelled`) : "");
       $("#egap",root).textContent=gapNote(gapBefore(L.vid,L.startTs,s)); };
     root.querySelectorAll("[data-em]").forEach(b=>b.onclick=()=>{ const e=endVal(); mode=b.dataset.em; root.querySelectorAll("[data-em]").forEach(x=>x.setAttribute("aria-pressed",x===b));
       $("#emKm",root).classList.toggle("hidden",mode!=="km"); $("#emOdo",root).classList.toggle("hidden",mode!=="odo");
-      if(mode==="odo"&&e>+so.value) eo.value=e; if(mode==="km"&&+eo.value>+so.value) km.value=+eo.value-(+so.value); upd(); (mode==="km"?km:eo).focus(); });
+      if(mode==="odo"&&e>startVal()) eo.value=e; if(mode==="km"&&+eo.value>startVal()) km.value=+eo.value-startVal(); upd(); (mode==="km"?km:eo).focus(); });
     [km,eo,so].forEach(i=>i.oninput=upd); upd(); km.focus();
     $("#ediscard",root).onclick=async()=>{ if(await ask("Discard this trip? Nothing will be saved.","Discard trip")){ S.live=null; stopGps(); persist(); close(); render(); toast("Trip discarded"); } };
     $("#esave",root).onclick=()=>{
-      const s=+so.value, e=endVal(), p=$("#ep",root).value.trim();
+      const s=startVal(), e=endVal(), p=$("#ep",root).value.trim();
       if(!e||e<=s&&mode==="km"&&!(+km.value)){ $("#eerr",root).textContent= mode==="km"?"Enter the kilometres travelled.":"Enter the end odometer."; return; }
       if(e<s){ $("#eerr",root).textContent="End odometer must be the same as or higher than the start."; return; }
       const g=gapBefore(L.vid,L.startTs,s), months=[monthKey(L.startTs)];
@@ -992,11 +1007,15 @@ function tripSheet(t){
   (root,close)=>{
     let type=base.type;
     const tso=$("#tso",root), tkm=$("#tkm",root), teo=$("#teo",root);
-    tkm.oninput=()=>{ if(tkm.value!=="") teo.value=(+tso.value)+Math.round(+tkm.value); };
-    teo.oninput=()=>{ if(teo.value!=="") tkm.value=Math.max(0,(+teo.value)-(+tso.value)); };
-    const gapAt=()=>isNew ? gapBefore($("#tv",root).value,new Date($("#ts",root).value).getTime(),+tso.value) : null;
+    // A blank start odometer means "carry on from the vehicle's last reading before the trip", never 0.
+    const startFallback=()=>odoAt($("#tv",root).value,(new Date($("#ts",root).value).getTime()||base.startTs)-1);
+    const startVal=()=> tso.value==="" ? startFallback() : +tso.value;
+    const blankNote=()=>{ tso.placeholder=fmtKm(startFallback()); const n=$("#tvnote",root); if(tso.value==="") n.textContent=`Start odometer blank, so using the last reading of ${fmtKm(startFallback())} km.`; else if(n.textContent.startsWith("Start odometer blank")) n.textContent=""; };
+    tkm.oninput=()=>{ if(tkm.value!=="") teo.value=startVal()+Math.round(+tkm.value); blankNote(); };
+    teo.oninput=()=>{ if(teo.value!=="") tkm.value=Math.max(0,(+teo.value)-startVal()); blankNote(); };
+    const gapAt=()=>isNew ? gapBefore($("#tv",root).value,new Date($("#ts",root).value).getTime(),startVal()) : null;
     const showGap=()=>{ const el=$("#tgap",root); if(el) el.textContent=gapNote(gapAt()); };
-    tso.oninput=()=>{ if(tkm.value!=="") teo.value=(+tso.value)+Math.round(+tkm.value); showGap(); };
+    tso.oninput=()=>{ if(tkm.value!=="") teo.value=startVal()+Math.round(+tkm.value); showGap(); blankNote(); };
     $("#ts",root).addEventListener("change",showGap); $("#tv",root).addEventListener("change",showGap); showGap();
     // Another car has its own odometer: keep the km, and start from that car's reading at the time.
     $("#tv",root).addEventListener("change",()=>{
@@ -1007,7 +1026,7 @@ function tripSheet(t){
     });
     root.querySelectorAll("[data-tt]").forEach(b=>b.onclick=()=>{ type=b.dataset.tt; root.querySelectorAll("[data-tt]").forEach(x=>x.setAttribute("aria-pressed",x===b)); });
     $("#tsave",root).onclick=()=>{
-      const so=+$("#tso",root).value, eo=+$("#teo",root).value, p=$("#tp",root).value.trim();
+      const so=startVal(), eo=+$("#teo",root).value, p=$("#tp",root).value.trim();
       const st=new Date($("#ts",root).value).getTime(), en=new Date($("#te",root).value).getTime();
       if(!st){ $("#terr",root).textContent="Enter when the trip started."; return; }
       if(!eo||eo<so){ $("#terr",root).textContent="End odometer must be the same as or higher than the start."; return; }
@@ -1222,10 +1241,89 @@ async function exportFile(text,filename,mime){
   try{ await navigator.clipboard.writeText(text); toast("Download isn't available here — copied instead"); }catch(e){ toast("Download isn't available in this view"); }
 }
 
+/* ---------- vehicle pictures ---------- */
+// Cartoon cars, side-on and facing right: body + windows in a 64×40 box, wheels at x positions.
+const CARS={
+  hatch:{label:"Hatchback",body:"M5 31V22c0-3 2-5 5-5.5l8-1.5 6-7c1-1.2 2.5-2 4-2h12c2 0 3.6 1 4.6 2.6L50 16c5 .8 9 3 9 7v8z",win:"M25 9.5c.6-.8 1.5-1.2 2.5-1.2H33V16H20zM35 8.3h5.5c1.2 0 2.2.6 2.8 1.6L47 16H35z",light:[56,21]},
+  sedan:{label:"Sedan",body:"M3 31v-7c0-2 1.5-3.5 3.5-4l8-1.5 7-7c1.2-1.2 2.8-2 4.5-2h11c1.8 0 3.4.8 4.5 2.2L48 18l8 1.2c3 .5 5 2.5 5 5.3V31z",win:"M23 12c.8-.9 2-1.4 3.2-1.4H33V18H18zM35 10.6h5c1.2 0 2.3.5 3 1.5L47 18H35z",light:[58,22]},
+  ute:{label:"Ute",body:"M3 31V19h26V12c0-2.2 1.8-4 4-4h9c1.6 0 3 .9 3.7 2.3L50 18l6 1c3 .6 5 2.8 5 5.5V31z",win:"M32 11h9.5c.8 0 1.5.4 1.8 1.1L46.5 18H32z",extra:"M3 19h26",light:[58,22]},
+  suv:{label:"SUV / 4WD",body:"M4 31V18c0-1.5.8-2.8 2-3.5l4-6C11 7 12.5 6 14.5 6H42c1.8 0 3.4.9 4.3 2.4L51 15l5 1.2c3 .7 5 3 5 6V31z",win:"M14 9h12v8H9zM28 9h13c1 0 2 .5 2.5 1.4L47 17H28z",extra:"M15 3.5h25",light:[58,20]},
+  van:{label:"Van",body:"M4 31V10c0-2.8 2.2-5 5-5h31c1.8 0 3.4.9 4.3 2.4L52 18l5 1c2.4.6 4 2.6 4 5V31z",win:"M40 8h2c1 0 1.9.5 2.4 1.3L50 18H40zM10 9h12v7H10zM25 9h11v7H25z",light:[58,22]},
+  truck:{label:"Truck",body:"M2 30V6c0-1.1.9-2 2-2h32c1.1 0 2 .9 2 2v24zM39 30V13c0-1.7 1.3-3 3-3h8c1.4 0 2.6.8 3.1 2l4.4 9c2.2.6 3.5 2.4 3.5 4.6V30z",win:"M42 13h7.5c.7 0 1.3.4 1.6 1l3 6H42z",wheels:[12,26,50],light:[58,24]},
+  sports:{label:"Sports car",body:"M3 31v-6c0-2.5 2-4 4.5-4.5L20 18l9-6c1.5-1 3.2-1.5 5-1.5h6c2 0 3.8.9 5 2.4L49 18l8 1.5c2.5.5 4 2.5 4 5V31z",win:"M30 13.5c1-.6 2-.9 3.2-.9H39v5.4H25zM41 12.6h.5c1.3 0 2.4.6 3.1 1.6L47 18h-6z",extra:"M3 19.5h6",r:5.5,light:[58,23]},
+  bubble:{label:"Bubble car",body:"M5 31v-5c0-3 1.5-5.5 4-7C12 11 20 5 31 5s19 6 22 14c2.5 1.5 4 4 4 7v5z",win:"M18 17c2-5 6-8 12-8.5V17zM32 8.5c6 .5 10 3.5 12 8.5H32z",light:[54,21]}
+};
+const CAR_COLOURS=["#4FD36A","#5AA9F5","#F5A05C","#F26D7D","#B48CF2","#F5D04C","#E9EDF2","#5B6478"];
+function carSvg(type,colour,w=64){
+  const c=CARS[type]||CARS.hatch, r=c.r||6, ws=c.wheels||[16,48];
+  return `<svg viewBox="0 0 64 40" width="${w}" height="${Math.round(w*40/64)}" aria-hidden="true" style="display:block">
+    <path d="${c.body}" fill="${colour}" stroke="rgba(0,0,0,.35)" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="${c.win}" fill="#CFE6FF" stroke="rgba(0,0,0,.25)" stroke-width="1"/>
+    ${c.extra?`<path d="${c.extra}" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.6" stroke-linecap="round"/>`:""}
+    <circle cx="${c.light[0]}" cy="${c.light[1]}" r="2.2" fill="#FFF6C2" stroke="rgba(0,0,0,.3)" stroke-width=".8"/>
+    ${ws.map(x=>`<circle cx="${x}" cy="31" r="${r}" fill="#262B36"/><circle cx="${x}" cy="31" r="${r*.42}" fill="#D9DEE6"/>`).join("")}
+  </svg>`;
+}
+// A vehicle's picture at width w, or "" if it has none.
+function vehPic(v,w){
+  const p=v&&v.pic; if(!p) return "";
+  if(p.kind==="photo"&&p.data) return `<img class="vpic" src="${esc(p.data)}" alt="" width="${w}" height="${Math.round(w*.75)}">`;
+  if(p.kind==="icon") return carSvg(p.id,p.colour||CAR_COLOURS[0],w);
+  return "";
+}
+function picForm(v){
+  const p=v.pic||{kind:"icon",id:"hatch",colour:CAR_COLOURS[0],none:true};
+  return `<label>Picture <span class="muted">(optional)</span></label>
+  <div id="vpic" data-pic="${esc(JSON.stringify(v.pic||null))}">
+    <div class="vpic-preview" id="vpicPrev"></div>
+    <div class="car-grid" role="group" aria-label="Cartoon cars">${Object.entries(CARS).map(([k,c])=>`<button type="button" class="car-opt" data-car="${k}" aria-label="${c.label}" title="${c.label}">${carSvg(k,"var(--muted)",52)}</button>`).join("")}</div>
+    <div class="swatches" role="group" aria-label="Colour">${CAR_COLOURS.map(c=>`<button type="button" class="swatch" data-col="${c}" style="background:${c}" aria-label="Colour ${c}"></button>`).join("")}</div>
+    <div class="duo" style="margin-top:10px"><button type="button" class="btn ghost" id="vpicUp">Upload a photo</button><button type="button" class="btn ghost" id="vpicNone">No picture</button></div>
+    <input type="file" id="vpicFile" accept="image/*" hidden>
+  </div>`;
+}
+function bindVehPic(){
+  const box=$("#vpic"); if(!box) return;
+  let pic=null; try{ pic=JSON.parse(box.dataset.pic); }catch(e){}
+  let colour=pic&&pic.kind==="icon"?pic.colour:CAR_COLOURS[0];
+  const show=()=>{
+    box.dataset.pic=JSON.stringify(pic);
+    $("#vpicPrev").innerHTML = pic ? vehPic({pic},120) : `<span class="small muted">No picture</span>`;
+    box.querySelectorAll("[data-car]").forEach(b=>b.setAttribute("aria-pressed",!!pic&&pic.kind==="icon"&&pic.id===b.dataset.car));
+    box.querySelectorAll("[data-col]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.col===colour));
+    box.querySelectorAll("[data-car] path:first-child").forEach(el=>el.setAttribute("fill",colour));
+  };
+  box.querySelectorAll("[data-car]").forEach(b=>b.onclick=()=>{ pic={kind:"icon",id:b.dataset.car,colour}; show(); });
+  box.querySelectorAll("[data-col]").forEach(b=>b.onclick=()=>{ colour=b.dataset.col; if(!pic||pic.kind!=="icon") pic={kind:"icon",id:"hatch",colour}; else pic.colour=colour; show(); });
+  $("#vpicNone").onclick=()=>{ pic=null; show(); };
+  $("#vpicUp").onclick=()=>$("#vpicFile").click();
+  $("#vpicFile").onchange=async e=>{
+    const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
+    try{ pic={kind:"photo",data:await shrinkPhoto(f)}; show(); }catch(err){ toast("Couldn't read that photo"); }
+  };
+  show();
+}
+// Crop to 4:3 and shrink to 320×240 so it syncs with the vehicle without bloating the data.
+function shrinkPhoto(file){
+  return new Promise((res,rej)=>{
+    const rd=new FileReader(), img=new Image();
+    rd.onload=()=>{ img.src=rd.result; }; rd.onerror=rej;
+    img.onload=()=>{
+      const W=320,H=240, s=Math.max(W/img.width,H/img.height), w=img.width*s, h=img.height*s;
+      const c=document.createElement("canvas"); c.width=W; c.height=H;
+      c.getContext("2d").drawImage(img,(W-w)/2,(H-h)/2,w,h);
+      res(c.toDataURL("image/jpeg",.8));
+    };
+    img.onerror=rej;
+    rd.readAsDataURL(file);
+  });
+}
+
 /* ---------- setup ---------- */
 function vehicleForm(v){
   return `<label for="vn">Vehicle name</label><input id="vn" value="${esc(v.name||"")}" placeholder="e.g. Ute">
   <div class="row"><div><label for="vr">Registration</label><input id="vr" value="${esc(v.rego||"")}" placeholder="ABC123"></div><div><label for="vm">Make / model</label><input id="vm" value="${esc(v.model||"")}" placeholder="Toyota HiLux"></div></div>
+  ${picForm(v)}
   <div class="row"><div><label for="vo">Odometer at setup</label><input id="vo" class="odo" inputmode="numeric" autocomplete="off" value="${v.startOdo??""}"></div><div><label for="vd">Setup date</label><input id="vd" type="date" value="${isoDate(v.startTs||Date.now())}"></div></div>
   <label for="vl">12-week logbook start (optional)</label><input id="vl" type="date" value="${v.logStart?isoDate(v.logStart):""}">
   <p class="small muted" style="margin-top:6px">Pick a start date for your 12 continuous weeks. Leave blank if you only use cents per km.</p>${NATIVE?`
@@ -1267,6 +1365,7 @@ function saveVehicle(v,first){
   if($("#vo").value===""||odo<0){ err.textContent="Enter the odometer reading."; return false; }
   const d=$("#vd").value, l=$("#vl").value;
   const rec={name,rego:$("#vr").value.trim().toUpperCase(),model:$("#vm").value.trim(),startOdo:odo,startTs:new Date(d+"T00:00").getTime(),logStart:l?new Date(l+"T00:00").getTime():null};
+  try{ rec.pic=JSON.parse($("#vpic").dataset.pic)||null; }catch(e){}
   const btBox=$("#vbt"); if(btBox) rec.bt=btBox.dataset.addr?{addr:btBox.dataset.addr,name:btBox.dataset.name}:null;
   if(v) Object.assign(v,rec); else { const n={id:uid(),...rec}; S.vehicles.push(n); S.settings.active=n.id; }
   persist(); if(first){ tab="drive"; } render(); toast("Vehicle saved"); return true;
@@ -1325,7 +1424,7 @@ function setup(){
   const rates=[[0,"0% — under $18,201"],[.15,"15% — $18,201–$45,000 (2026–27)"],[.16,"16% — $18,201–$45,000 (2025–26)"],[.30,"30% — $45,001–$135,000"],[.37,"37% — $135,001–$190,000"],[.45,"45% — over $190,000"]];
   return `${header("Setup")}
   <h2 style="margin-top:0">Vehicles</h2>
-  <div class="panel">${S.vehicles.length?`<ul class="list">${S.vehicles.map(v=>`<li><button class="item" data-ev="${v.id}"><div><b>${esc(v.name)}</b><div class="small muted">${esc([v.rego,v.model].filter(Boolean).join(" · "))||"No details"}</div></div><span class="km">${fmtKm(currentOdo(v.id))}</span></button></li>`).join("")}</ul>`:""}
+  <div class="panel">${S.vehicles.length?`<ul class="list">${S.vehicles.map(v=>`<li><button class="item" data-ev="${v.id}">${v.pic?`<span class="list-pic">${vehPic(v,56)}</span>`:""}<div style="flex:1"><b>${esc(v.name)}</b><div class="small muted">${esc([v.rego,v.model].filter(Boolean).join(" · "))||"No details"}</div></div><span class="km">${fmtKm(currentOdo(v.id))}</span></button></li>`).join("")}</ul>`:""}
   <button class="btn block" id="addV" style="margin-top:12px">Add vehicle</button></div>
   <h2>Tax</h2>
   <div class="panel">
@@ -1390,7 +1489,7 @@ function vehSheet(v){
   sheet(v?"Edit vehicle":"Add vehicle",`${vehicleForm(v||{})}<div class="err" id="verr"></div>
   <div class="actions">${v?`<button class="btn danger" id="vdel">Delete</button>`:`<button class="btn ghost" data-close>Cancel</button>`}<button class="btn" id="vsave">Save vehicle</button></div>`,
   (root,close)=>{
-    bindVehBt();
+    bindVehBt(); bindVehPic();
     $("#vsave",root).onclick=()=>{ if(saveVehicle(v,false)) close(); };
     const d=$("#vdel",root); if(d) d.onclick=async()=>{ if(!await ask(`Delete ${v.name} and all its trips, readings and expenses?`)) return;
       const months=new Set(S.trips.filter(t=>t.vid===v.id).map(t=>monthKey(t.startTs)));
