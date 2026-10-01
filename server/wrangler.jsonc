@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "drivemate",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  // The web version of the app is served as a static file; only /api/* reaches the Worker code.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "drivemate",
+      "database_id": "10308b12-7630-40ef-a0b4-dd2d3d413ed5",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

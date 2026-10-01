@@ -1,0 +1,12 @@
+{
+  "name": "drivemate-server",
+  "private": true,
+  "scripts": {
+    "build": "mkdir -p public && cp ../app.html public/index.html",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler d1 migrations apply drivemate --remote && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.141.0"
+  }
+}

@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DriveMate</title>
+<meta name="theme-color" content="#0F121C">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;1,800&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0F121C; --surface:#171C29; --ink:#F2F5F7; --muted:#9AA4B5; --line:#283044;
+  --g1:#7BE35A; --g2:#1FB86E; --grad:linear-gradient(135deg,var(--g1),var(--g2));
+  --road:#5AD864; --road-ink:#0B0E16; --biz:#4FD36A; --biz-soft:#15301F; --priv:#8D98A5; --warn:#F5A05C; --warn-soft:#3A2519;
+  --plate:#F2F5F7; --plate-ink:#0F121C; --plate-edge:#4FD36A;
+  --sans:"Poppins",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --cond:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+main{max-width:560px;margin:0 auto;padding:16px 16px 48px}
+[hidden]{display:none!important}
+.chk{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.chk:last-child{border-bottom:0}
+.chk .ok{color:var(--biz)} .chk .no{color:var(--warn)}
+#gpsline .linkbtn{display:inline;padding:0;margin:0 0 0 6px;min-height:0}
+h1,h2,h3{font-family:var(--sans);font-weight:700;margin:0;line-height:1.2}
+h1{font-size:24px;margin-bottom:14px} h2{font-size:18px;margin:28px 0 10px} h3{font-size:16px}
+p{margin:0 0 8px}
+.muted{color:var(--muted)} .small{font-size:14px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--road);outline-offset:2px}
+.topbar{display:none}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none}
+.brand img{height:34px;width:auto;display:block}
+.wm{font-style:italic;font-weight:800;font-size:22px;letter-spacing:-.3px;line-height:1}
+.wm b{color:var(--ink);font-weight:800} .wm i{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;font-style:italic}
+.sync{font-size:13px;color:var(--muted)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px}
+.chip{border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 14px;white-space:nowrap;font-weight:600}
+.chip[aria-pressed="true"]{border-color:var(--biz);background:var(--biz-soft);color:var(--biz)}
+.panel{background:var(--surface);border-radius:14px;padding:16px;border:1px solid var(--line)}
+.panel + .panel{margin-top:12px}
+/* Odometer plate: the one memorable element */
+.plate-wrap{text-align:center;padding:22px 12px 18px}
+.plate-label{font-size:14px;color:var(--muted);margin-bottom:8px}
+.plate{display:inline-flex;gap:4px;padding:10px 12px;background:var(--plate);border:3px solid var(--plate-edge);border-radius:10px}
+.digit{width:clamp(28px,8.5vw,34px);height:52px;overflow:hidden;background:#fff;border-radius:4px;box-shadow:inset 0 0 0 1px #c9d3df;position:relative}
+.digit .reel{position:absolute;left:0;right:0;top:0;transition:transform .9s cubic-bezier(.2,.8,.2,1)}
+.digit span{display:block;height:52px;line-height:52px;text-align:center;font-family:var(--cond);font-weight:700;font-size:40px;color:var(--plate-ink)}
+.plate .unit{align-self:flex-end;font-family:var(--cond);font-weight:700;color:var(--plate-ink);padding-left:4px;font-size:18px}
+@media (prefers-reduced-motion: reduce){.digit .reel{transition:none}}
+.plate-sub{margin-top:10px;font-size:14px;color:var(--muted)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:12px;padding:12px 18px;min-height:50px;font-weight:700;background:var(--ink);color:var(--surface)}
+.btn.road{background:var(--grad);color:var(--road-ink)}
+.btn.biz{background:var(--grad);color:var(--road-ink)}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.btn.danger{background:transparent;color:var(--warn);border:1.5px solid var(--warn)}
+.btn.block{width:100%}
+.start{width:100%;min-height:92px;font-family:var(--sans);font-style:italic;font-weight:800;font-size:28px;border-radius:18px;box-shadow:0 8px 28px rgba(79,211,106,.25)}
+.linkbtn{background:none;border:0;color:var(--ink);text-decoration:underline;text-underline-offset:3px;padding:10px 0;font-weight:600}
+.banner{background:var(--warn-soft);border:1.5px solid var(--warn);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.banner strong{color:var(--warn)}
+.row{display:flex;gap:10px;align-items:center}
+.row > *{flex:1}
+label{display:block;font-size:14px;font-weight:600;margin:12px 0 4px}
+input,select,textarea{width:100%;min-height:48px;font-size:16px;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface)}
+input[type=checkbox]{width:auto}
+.check{display:flex;gap:10px;align-items:center;font-weight:500;margin-top:12px}
+.seg{display:flex;border:1.5px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{flex:1;border:0;background:transparent;padding:10px;min-height:46px;font-weight:700}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.seg button.biz[aria-pressed="true"]{background:var(--grad);color:var(--road-ink)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stat .v{font-family:var(--cond);font-weight:700;font-size:28px;line-height:1.1}
+.stat .k{font-size:13px;color:var(--muted)}
+.stat.big .v{font-size:34px;color:var(--biz)}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:8px 0 4px}
+.bar > i{display:block;height:100%;background:var(--grad)}
+.live{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.live .t{font-family:var(--cond);font-size:44px;font-weight:700}
+.pulse{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--biz);margin-right:6px;animation:p 1.6s infinite}
+@keyframes p{50%{opacity:.25}}
+@media (prefers-reduced-motion: reduce){.pulse{animation:none}}
+.quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.quick button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 11px;font-size:14px}
+.list{list-style:none;margin:0;padding:0}
+.item{display:flex;gap:12px;align-items:flex-start;padding:12px 2px;border-bottom:1px solid var(--line);cursor:pointer;background:none;border-left:0;border-right:0;border-top:0;width:100%;text-align:left}
+.item .km{margin-left:auto;font-family:var(--cond);font-weight:700;font-size:22px;white-space:nowrap}
+.tag{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 7px;margin-right:6px}
+.tag.b{background:var(--biz-soft);color:var(--biz)} .tag.p{background:var(--line);color:var(--muted)}
+.day{font-size:13px;font-weight:700;color:var(--muted);margin-top:16px}
+.empty{padding:28px 8px;text-align:center;color:var(--muted)}
+.appbar{max-width:560px;margin:0 auto;padding:14px 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+nav.tabs{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+nav.tabs .in{display:flex;max-width:560px;margin:0 auto;padding:0 8px}
+nav.tabs button{flex:1;background:none;border:0;border-bottom:3px solid transparent;padding:8px 2px 9px;font-weight:600;font-size:13px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;min-height:58px}
+nav.tabs button[aria-current="page"]{color:var(--biz);border-bottom-color:var(--biz)}
+nav.tabs button[aria-current="page"] svg{stroke:var(--biz)}
+nav.tabs svg{width:24px;height:24px;fill:none;stroke:var(--muted);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.screen{max-width:560px;margin:0 auto;padding:4px 16px 40px}
+.screen-head{display:flex;align-items:center;gap:6px;margin:0 -6px 8px;padding:6px 0;border-bottom:1px solid var(--line)}
+.back{background:none;border:0;color:var(--biz);font-weight:600;display:flex;align-items:center;gap:4px;padding:10px 8px;min-height:44px}
+.back svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.screen-head h3{font-size:17px}
+.actions{display:flex;gap:10px;margin-top:18px}
+.actions > *{flex:1}
+.err{color:var(--warn);font-size:14px;margin-top:6px;min-height:1em}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:700;color:var(--muted)}
+.scroll{overflow-x:auto}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.kv:last-child{border-bottom:0}
+.kv b{font-family:var(--cond);font-size:20px}
+.ok{color:var(--biz);font-weight:700}
+.note{font-size:14px;color:var(--muted);margin-top:10px}
+.toast{position:absolute;left:50%;top:calc(70px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:10px 16px;border-radius:10px;font-weight:600;z-index:20;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+code{background:var(--line);padding:2px 6px;border-radius:5px;word-break:break-all;font-size:14px}
+ol.steps{padding-left:20px;margin:6px 0} ol.steps li{margin-bottom:6px}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.duo .btn{min-height:58px;font-size:15px;white-space:nowrap;padding:12px 10px}
+.btn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.cam{width:100%;min-height:64px;border:2px dashed var(--line);border-radius:12px;background:var(--surface);font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px}
+.cam svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2}
+.receipt{display:flex;gap:12px;align-items:center;margin-top:10px}
+.receipt img{width:72px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.receipt-full{max-width:100%;border-radius:10px;border:1px solid var(--line);margin-top:10px}
+.scan{font-size:14px;color:var(--muted)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header class="appbar"><span class="brand" id="brand"></span><span class="sync" id="sync">Saved on this phone</span></header>
+<nav class="tabs" id="tabsNav" aria-label="Sections"><div class="in" id="tabs"></div></nav>
+<main id="app"></main>
+<div id="screens"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ---------- constants ---------- */
+const CPK = {2020:.72,2021:.72,2022:.78,2023:.85,2024:.88,2025:.88,2026:.91}; // keyed by FY start year
+const CPK_CAP = 5000;
+const EXP_CATS = ["Fuel","Maintenance & servicing","Repairs","Registration","Insurance","Tyres","Tolls & parking","Cleaning","Depreciation","Interest / lease","Other"];
+const LS_KEY = "kmlog.v1"; // keep key so existing data carries over
+
+/* ---------- state ---------- */
+let S = blank();
+function blank(){ return {settings:{taxRate:.30, medicare:true, active:null}, vehicles:[], odo:[], expenses:[], trips:[], live:null}; }
+const uid = () => Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
+const $ = (s,el=document)=>el.querySelector(s);
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const fmtKm = n => Math.round(n).toLocaleString("en-AU");
+const money = n => n.toLocaleString("en-AU",{style:"currency",currency:"AUD",maximumFractionDigits:0});
+const pct = n => (n*100).toFixed(1)+"%";
+const dFmt = ts => new Date(ts).toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
+const tFmt = ts => new Date(ts).toLocaleTimeString("en-AU",{hour:"numeric",minute:"2-digit"});
+const isoDate = ts => { const d=new Date(ts); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
+const isoLocal = ts => { const d=new Date(ts); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
+const fyOf = ts => { const d=new Date(ts); return d.getMonth()>=6 ? d.getFullYear() : d.getFullYear()-1; };
+const fyLabel = y => `${y}–${String(y+1).slice(-2)}`;
+const fyRange = y => [new Date(y,6,1).getTime(), new Date(y+1,6,1).getTime()];
+const rateFor = y => CPK[y] ?? CPK[Math.max(...Object.keys(CPK).map(Number))];
+const monthKey = ts => { const d=new Date(ts); return `m-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
+const tripKm = t => Math.max(0,(t.endOdo||0)-(t.startOdo||0));
+
+/* ---------- storage: local mirror + cloud (claude.ai, or a DriveMate account) ---------- */
+const API_HOST = "https://drivemate.agency-log.workers.dev"; // the Android app loads the page from file://
+let cloud=null, me=null, saveTimer=null, retryTimer=null, dirtyCfg=false, dirtyMonths=new Set(), syncState="local";
+let account=null; // {token,email} when signed in to a DriveMate account
+const inClaude = () => !!(window.claude && typeof claude.use==="function");
+const apiBase = () => location.protocol==="file:" ? API_HOST : "";
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ v==null ? localStorage.removeItem(k) : localStorage.setItem(k,v); }catch(e){} }
+function loadLocal(){
+  try{ const raw=lsGet(LS_KEY); if(raw){ S=Object.assign(blank(),JSON.parse(raw)); } }catch(e){}
+  try{ const p=JSON.parse(lsGet("dm.pending")||"null"); if(p){ dirtyCfg=!!p.cfg; (p.months||[]).forEach(m=>dirtyMonths.add(m)); } }catch(e){}
+  try{ account=JSON.parse(lsGet("dm.auth")||"null"); }catch(e){ account=null; }
+}
+function saveLocal(){ lsSet(LS_KEY,JSON.stringify(S)); }
+// Changes not yet in the cloud survive a restart, so they're pushed before the next pull.
+function savePending(){ lsSet("dm.pending",JSON.stringify({cfg:dirtyCfg,months:[...dirtyMonths]})); }
+function saveAuth(a){ account=a; lsSet("dm.auth",a?JSON.stringify(a):null); }
+function markAllDirty(){ dirtyCfg=true; S.trips.forEach(t=>dirtyMonths.add(monthKey(t.startTs))); savePending(); }
+const hasPending = () => dirtyCfg || dirtyMonths.size>0;
+const savedLabel = () => "Saved to your account";
+function persist(opts={}){
+  saveLocal();
+  dirtyCfg = true;
+  (opts.months||[]).forEach(m=>dirtyMonths.add(m));
+  savePending();
+  clearTimeout(saveTimer); saveTimer=setTimeout(pushCloud,700);
+}
+async function pushCloud(store=cloud,id=me){
+  if(!store||!id||!hasPending()) return;
+  const cfgWas=dirtyCfg, months=[...dirtyMonths];
+  dirtyCfg=false; dirtyMonths.clear();
+  try{
+    setSync("Saving…");
+    const col = store.collection(`data/users/${id}`);
+    if(cfgWas){ const {trips,...cfg}=S; await col.doc("config").set(JSON.parse(JSON.stringify(cfg))); }
+    for(const m of months){
+      const list = S.trips.filter(t=>monthKey(t.startTs)===m);
+      if(list.length) await col.doc(m).set({trips:list}); else await col.doc(m).delete();
+    }
+    savePending(); setSync(savedLabel());
+  }catch(e){
+    if(cfgWas) dirtyCfg=true; months.forEach(m=>dirtyMonths.add(m)); savePending();
+    setSync("Saved on this phone · syncs when online");
+    clearTimeout(retryTimer); retryTimer=setTimeout(()=>pushCloud(),30000);
+  }
+}
+function fromDocs(docs){
+  const next=blank(), trips=[];
+  docs.forEach(doc=>{ const v=doc.data()||{}; if(doc.id==="config") Object.assign(next,JSON.parse(JSON.stringify(v))); else if(Array.isArray(v.trips)) trips.push(...JSON.parse(JSON.stringify(v.trips))); });
+  next.trips=trips; return next;
+}
+function mergeData(base,extra){ // everything in base, plus anything in extra that base doesn't have
+  const out=JSON.parse(JSON.stringify(base));
+  ["vehicles","odo","expenses","trips"].forEach(k=>{ out[k]=out[k]||[]; const ids=new Set(out[k].map(x=>x.id)); (extra[k]||[]).forEach(x=>{ if(!ids.has(x.id)) out[k].push(x); }); });
+  if(!out.settings.active) out.settings.active=(extra.settings&&extra.settings.active)||(out.vehicles[0]&&out.vehicles[0].id)||null;
+  out.live=out.live||extra.live||null;
+  return out;
+}
+/** Link the page to a cloud store. `merge` keeps this phone's data alongside the account's (first sign-in). */
+async function connect(store,id,{merge=false}={}){
+  if(hasPending() && !merge){ await pushCloud(store,id); if(hasPending()) throw new Error("offline"); }
+  const snap = await store.collection(`data/users/${id}`).get();
+  const local = S.vehicles.length||S.trips.length;
+  cloud=store; me=id;
+  if(snap.empty){
+    if(local){ markAllDirty(); await pushCloud(); } else setSync(savedLabel());
+    return;
+  }
+  const remote=fromDocs(snap.docs);
+  if(merge && local){ S=mergeData(remote,S); saveLocal(); markAllDirty(); await pushCloud(); }
+  else { remote.live = remote.live || S.live; S=remote; saveLocal(); setSync(savedLabel()); }
+}
+async function initCloud(){
+  if(inClaude()){
+    try{
+      const [d,u] = await Promise.all([claude.use("db"),claude.use("user")]);
+      if(!d||!u) return;
+      const id = await u.id(); if(!id) return;
+      await connect(d,id); render();
+    }catch(e){ setSync("Saved on this phone only"); }
+    return;
+  }
+  if(!account) return;
+  setSync("Syncing…");
+  try{ await connect(accountStore,"me"); if(!screenStack.length) render(); }
+  catch(e){ if(account) setSync("Saved on this phone · syncs when online"); }
+}
+function setSync(t){ syncState=t; const el=$("#sync"); if(el) el.textContent=t; }
+
+/* ---------- DriveMate accounts ---------- */
+async function api(path,{method="GET",body}={}){
+  const h={"Content-Type":"application/json"}; if(account&&account.token) h.Authorization="Bearer "+account.token;
+  let r;
+  try{ r=await fetch(apiBase()+"/api/"+path,{method,headers:h,body:body?JSON.stringify(body):undefined}); }
+  catch(e){ throw new Error("You're offline. Check your connection and try again."); }
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){ const err=new Error(j.error||"Something went wrong. Try again."); err.status=r.status; if(r.status===401&&account&&h.Authorization) sessionEnded(); throw err; }
+  return j;
+}
+// Same shape as the claude.ai store the sync code was written against.
+const accountStore={ collection(){ return {
+  async get(){ const {docs}=await api("data"); return {empty:!docs.length,docs:docs.map(d=>({id:d.id,data:()=>d.data}))}; },
+  doc(id){ const p="data/"+encodeURIComponent(id); return { set:data=>api(p,{method:"PUT",body:{data}}), delete:()=>api(p,{method:"DELETE"}) }; }
+}; } };
+async function signedIn(res,isNew){
+  saveAuth({token:res.token,email:res.email}); lsSet("dm.local",null);
+  setSync("Syncing…");
+  try{ await connect(accountStore,"me",{merge:true}); }catch(e){ setSync("Saved on this phone · syncs when online"); }
+  closeAllScreens(); tab="drive"; render(); toTop();
+  if(res.recovery) recoverySheet(res.recovery,isNew);
+  else toast("Signed in");
+}
+function clearPhone(){ if(S.live) stopGps(); S=blank(); saveLocal(); dirtyCfg=false; dirtyMonths.clear(); savePending(); cloud=null; me=null; saveAuth(null); }
+function sessionEnded(){ cloud=null; me=null; saveAuth(null); setSync("Signed out"); closeAllScreens(); render(); toast("Signed out — sign in again to keep syncing"); }
+
+/* ---------- derived data ---------- */
+const veh = id => S.vehicles.find(v=>v.id===id);
+const activeVeh = () => veh(S.settings.active) || S.vehicles[0] || null;
+function readings(vid){ // every known odometer point for a vehicle
+  const pts=[];
+  const v=veh(vid); if(v&&v.startOdo!=null) pts.push({ts:v.startTs||0,odo:+v.startOdo});
+  S.odo.filter(o=>o.vid===vid).forEach(o=>pts.push({ts:o.ts,odo:+o.value}));
+  S.trips.filter(t=>t.vid===vid).forEach(t=>{ pts.push({ts:t.startTs,odo:+t.startOdo}); if(t.endOdo!=null) pts.push({ts:t.endTs||t.startTs,odo:+t.endOdo}); });
+  return pts.sort((a,b)=>a.ts-b.ts);
+}
+function currentOdo(vid){ const r=readings(vid); return r.length? Math.max(...r.map(p=>p.odo)) : 0; }
+function lastWeekly(vid){ return S.odo.filter(o=>o.vid===vid).sort((a,b)=>b.ts-a.ts)[0]||null; }
+function periodStats(vid,from,to){
+  const trips=S.trips.filter(t=>t.vid===vid&&t.startTs>=from&&t.startTs<to&&t.endOdo!=null);
+  const biz=trips.filter(t=>t.type==="business").reduce((a,t)=>a+tripKm(t),0);
+  const priv=trips.filter(t=>t.type!=="business").reduce((a,t)=>a+tripKm(t),0);
+  const pts=readings(vid).filter(p=>p.ts>=from&&p.ts<to);
+  let total = pts.length>=2 ? Math.max(...pts.map(p=>p.odo))-Math.min(...pts.map(p=>p.odo)) : 0;
+  total = Math.max(total, biz+priv);
+  const startOdo = pts.length? Math.min(...pts.map(p=>p.odo)) : null;
+  const endOdo = pts.length? Math.max(...pts.map(p=>p.odo)) : null;
+  return {trips,biz,priv,total,pctBiz: total? Math.min(1,biz/total):0, startOdo, endOdo};
+}
+function logbookInfo(v){
+  if(!v.logStart) return null;
+  const from=v.logStart, to=from+84*864e5, now=Date.now();
+  const st=periodStats(v.id,from,Math.min(to,now+1));
+  const weeks=Math.min(12,Math.floor((Math.min(now,to)-from)/(7*864e5)));
+  return {from,to,done:now>=to,weeks,...st};
+}
+function claim(vid,fy){
+  const v=veh(vid); const [from,to]=fyRange(fy);
+  const st=periodStats(vid,from,to);
+  const lb=v?logbookInfo(v):null;
+  const usePct = lb&&lb.done&&lb.total ? lb.pctBiz : st.pctBiz;
+  const pctSource = lb&&lb.done&&lb.total ? "12-week logbook" : "this year so far";
+  const expenses=S.expenses.filter(e=>e.vid===vid&&e.ts>=from&&e.ts<to);
+  const expTotal=expenses.reduce((a,e)=>a+(+e.amount||0),0);
+  const rate=rateFor(fy);
+  const cents=Math.min(st.biz,CPK_CAP)*rate;
+  const logbook=expTotal*usePct;
+  const best = logbook>cents ? "logbook" : "cents";
+  const deduction=Math.max(cents,logbook);
+  const mr=(+S.settings.taxRate||0)+(S.settings.medicare?.02:0);
+  return {...st,lb,usePct,pctSource,expenses,expTotal,rate,cents,logbook,best,deduction,saving:deduction*mr,mr};
+}
+
+/* ---------- Android app bridge (absent on the web) ---------- */
+const NATIVE = (typeof window.DriveMateNative==="object" && window.DriveMateNative) ? window.DriveMateNative : null;
+function nState(){ try{ return JSON.parse(NATIVE.state()); }catch(e){ return {}; } }
+function nPerms(){ try{ return JSON.parse(NATIVE.perms()); }catch(e){ return {}; } }
+function liveGpsKm(){ if(NATIVE){ const st=nState(); return st.tracking ? (+st.km||0) : 0; } return S.live ? (S.live.gpsKm||0) : 0; }
+function gpsLine(){
+  const L=S.live; if(!L) return "";
+  if(!NATIVE) return L.gps ? `GPS ${(L.gpsKm||0).toFixed(1)} km so far` : "";
+  const st=nState(), km=(+st.km||0).toFixed(1);
+  switch(st.status){
+    case "ok": return `GPS ${km} km so far`;
+    case "weak": return `GPS signal weak · ${km} km so far`;
+    case "gps-off": return `Location is turned off on this phone<button class="linkbtn" data-fixloc="gps">Turn on</button>`;
+    case "no-permission": return `DriveMate needs location access to count kilometres<button class="linkbtn" data-fixloc="perm">Allow</button>`;
+    default: return `GPS looking for a signal…`;
+  }
+}
+function syncFromNative(){
+  if(!NATIVE) return;
+  const st=nState();
+  if(S.live && st.discardedTs && +st.discardedTs===S.live.startTs){ S.live=null; persist(); return; }
+  if(st.tracking && !S.live && S.vehicles.length){
+    const v=activeVeh();
+    S.live={vid:v.id,startTs:+st.startTs||Date.now(),startOdo:currentOdo(v.id),type:"business",purpose:"",gpsKm:0,from:""};
+    persist();
+  }else if(S.live && !st.tracking){
+    try{ NATIVE.startTrip(String(S.live.startTs)); }catch(e){}
+  }
+}
+window.dmNative=function(evt){
+  syncFromNative();
+  if(evt==="end" && S.live){ closeAllScreens(); tab="drive"; render(); endTripSheet(); return; }
+  if(!screenStack.length) render();
+};
+window.dmBack=function(){
+  if(screenStack.length){ const b=screenStack[screenStack.length-1].querySelector("[data-close]"); if(b){ b.click(); return true; } }
+  if(tab!=="drive"){ go("drive"); return true; }
+  return false;
+};
+
+/* ---------- live trip ---------- */
+let tick=null, geoWatch=null, lastFix=null;
+function startTrip(vid){
+  const v=veh(vid)||activeVeh(); if(!v){ go("setup"); return; }
+  if(S.live) return;
+  S.live={vid:v.id,startTs:Date.now(),startOdo:currentOdo(v.id),type:"business",purpose:"",gpsKm:0,from:""};
+  persist(); startGps(); render(); toast("Trip started");
+}
+function startGps(){
+  if(NATIVE){
+    if(S.live){ try{ NATIVE.startTrip(String(S.live.startTs)); }catch(e){} if(!nPerms().fine){ try{ NATIVE.askLocation(); }catch(e){} } }
+    return;
+  }
+  stopGps();
+  if(!("geolocation" in navigator)||!S.live) return;
+  try{
+    geoWatch=navigator.geolocation.watchPosition(p=>{
+      if(!S.live) return;
+      const c={lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy};
+      if(c.acc>60) return;
+      if(lastFix){ const d=hav(lastFix,c); if(d>0.015 && d<5){ S.live.gpsKm=(S.live.gpsKm||0)+d; saveLocal(); } }
+      lastFix=c; S.live.gps=true;
+    },()=>{ if(S.live) S.live.gps=false; },{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+  }catch(e){}
+}
+function stopGps(){ if(NATIVE){ try{ NATIVE.stopTrip(); }catch(e){} return; } if(geoWatch!=null){ try{navigator.geolocation.clearWatch(geoWatch);}catch(e){} } geoWatch=null; lastFix=null; }
+function hav(a,b){ const R=6371,r=x=>x*Math.PI/180; const dLa=r(b.lat-a.lat),dLo=r(b.lon-a.lon); const h=Math.sin(dLa/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
+
+/* ---------- navigation ---------- */
+let tab="drive", tripsView="trips", reportFy=fyOf(Date.now()), reportVid=null;
+const TABS=[
+  ["drive","Drive",'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M12 3v7M4.5 16.5 10.3 13M19.5 16.5 13.7 13"/>'],
+  ["trips","Log",'<path d="M5 4h14v16H5z"/><path d="M9 9h6M9 13h6M9 17h3"/>'],
+  ["report","Report",'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
+  ["setup","Setup",'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>']
+];
+function toTop(){ try{ window.scrollTo(0,0); document.body.scrollIntoView({block:"start"}); }catch(e){} }
+function go(t){ closeAllScreens(); tab=t; render(); toTop(); }
+function renderTabs(){
+  $("#tabs").innerHTML=TABS.map(([k,l,ic])=>`<button data-tab="${k}" ${k===tab?'aria-current="page"':''}><svg viewBox="0 0 24 24" aria-hidden="true">${ic}</svg>${l}</button>`).join("");
+  $("#tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>go(b.dataset.tab));
+}
+function render(){
+  renderTabs();
+  clearInterval(tick);
+  const app=$("#app");
+  const gate = !inClaude() && !account && !lsGet("dm.local");
+  $("#tabsNav").hidden = gate || screenStack.length>0;
+  if(gate){ app.innerHTML=accountScreen(); bindAccount(); return; }
+  if(!S.vehicles.length && tab!=="setup"){ app.innerHTML=welcome(); bindWelcome(); return; }
+  if(tab==="drive") { app.innerHTML=drive(); bindDrive(); }
+  if(tab==="trips") { app.innerHTML=trips(); bindTrips(); }
+  if(tab==="report"){ app.innerHTML=report(); bindReport(); }
+  if(tab==="setup") { app.innerHTML=setup(); bindSetup(); }
+}
+const LOGO="data:image/jpeg;base64,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";
+function header(title){ return title?`<h1>${title}</h1>`:""; }
+function vehicleChips(sel,onAttr="data-veh"){
+  if(S.vehicles.length<2) return "";
+  return `<div class="chips" role="group" aria-label="Vehicle">${S.vehicles.map(v=>`<button class="chip" ${onAttr}="${v.id}" aria-pressed="${v.id===sel}">${esc(v.name)}</button>`).join("")}</div>`;
+}
+
+/* ---------- account screens ---------- */
+let accountMode="create";
+function accountScreen(){
+  const c=accountMode==="create";
+  return `${header(c?"Create your account":"Sign in")}
+  <p class="muted">${c?"Your trips, odometer readings and expenses are saved to your account, so they're safe if you lose your phone and you can use them on another device.":"Sign in to get your trips, odometer readings and expenses on this device."}</p>
+  <div class="panel">
+    <div class="seg" role="group"><button data-am="create" aria-pressed="${c}">Create account</button><button data-am="signin" aria-pressed="${!c}">Sign in</button></div>
+    <form id="aForm" novalidate>
+      <label for="aEmail">Email</label><input id="aEmail" type="email" autocomplete="email" inputmode="email" autocapitalize="off">
+      <label for="aPass">Password</label><input id="aPass" type="password" autocomplete="${c?"new-password":"current-password"}" ${c?'minlength="8"':""}>
+      ${c?`<p class="small muted" style="margin-top:6px">At least 8 characters.</p>`:""}
+      <div class="err" id="aErr"></div>
+      <button class="btn road block" id="aGo" type="submit" style="margin-top:8px">${c?"Create account":"Sign in"}</button>
+    </form>
+    ${c?"":`<button class="linkbtn" id="aForgot">Forgot your password?</button>`}
+  </div>
+  <button class="linkbtn" id="aSkip" style="margin-top:12px">Use without an account</button>
+  <p class="small muted">Without an account, everything is kept only on this ${NATIVE?"phone":"device"}. You can create an account later in Setup.</p>`;
+}
+function bindAccount(){
+  document.querySelectorAll("[data-am]").forEach(b=>b.onclick=()=>{ accountMode=b.dataset.am; render(); });
+  $("#aSkip").onclick=()=>{ lsSet("dm.local","1"); render(); };
+  const f=$("#aForgot"); if(f) f.onclick=resetSheet;
+  $("#aForm").onsubmit=async ev=>{
+    ev.preventDefault();
+    const btn=$("#aGo"), err=$("#aErr"), label=btn.textContent;
+    err.textContent=""; btn.disabled=true; btn.textContent="One moment…";
+    try{
+      const res=await api(accountMode==="create"?"signup":"login",{method:"POST",body:{email:$("#aEmail").value,password:$("#aPass").value}});
+      await signedIn(res,accountMode==="create");
+    }catch(e){ err.textContent=e.message; btn.disabled=false; btn.textContent=label; }
+  };
+}
+function resetSheet(){
+  sheet("Reset password",`
+    <p class="muted small" style="margin-top:12px">Enter the recovery code you saved when you created your account.</p>
+    <label for="rEmail">Email</label><input id="rEmail" type="email" autocomplete="email" autocapitalize="off" value="${esc(($("#aEmail")||{}).value||"")}">
+    <label for="rCode">Recovery code</label><input id="rCode" autocapitalize="characters" autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX">
+    <label for="rPass">New password</label><input id="rPass" type="password" autocomplete="new-password">
+    <div class="err" id="rErr"></div>
+    <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn road" id="rGo">Reset password</button></div>`,
+  (root)=>{
+    $("#rGo",root).onclick=async()=>{
+      const b=$("#rGo",root); b.disabled=true;
+      try{ const res=await api("reset",{method:"POST",body:{email:$("#rEmail",root).value,recovery:$("#rCode",root).value,password:$("#rPass",root).value}}); await signedIn(res,false); }
+      catch(e){ $("#rErr",root).textContent=e.message; b.disabled=false; }
+    };
+  });
+}
+function recoverySheet(code,isNew){
+  sheet("Save your recovery code",`
+    <p style="margin-top:12px">${isNew?"Your account is ready.":"Your password has been changed, and you have a new recovery code. The old one no longer works."}</p>
+    <p>If you forget your password, this code is the only way back into your account. Write it down or keep it in your password manager.</p>
+    <div class="panel" style="text-align:center;margin:14px 0"><code style="font-size:20px;letter-spacing:1px;background:none" id="rcCode">${esc(code)}</code></div>
+    <button class="btn ghost block" id="rcCopy">Copy code</button>
+    <button class="btn road block" data-close style="margin-top:10px">I've saved it</button>`,
+  (root)=>{ $("#rcCopy",root).onclick=async()=>{ try{ await navigator.clipboard.writeText(code); toast("Code copied"); }catch(e){ toast("Copy isn't available — write it down"); } }; });
+}
+function accountPanel(){
+  if(inClaude()) return "";
+  if(!account) return `<h2>Account</h2><div class="panel"><p class="small muted">Create an account or sign in to save your data and use it on another device.</p>
+    <button class="btn road block" id="acSignIn">Create account or sign in</button></div>`;
+  return `<h2>Account</h2><div class="panel">
+    <p class="small muted" style="margin:0">Signed in as</p><p style="font-weight:600;word-break:break-all">${esc(account.email)}</p>
+    <button class="btn ghost block" id="acOut" style="margin-top:12px">Sign out</button>
+    <button class="btn danger block" id="acDel" style="margin-top:10px">Delete account</button></div>`;
+}
+function bindAccountPanel(){
+  const si=$("#acSignIn"); if(si) si.onclick=()=>{ lsSet("dm.local",null); accountMode="create"; render(); toTop(); };
+  const so=$("#acOut"); if(so) so.onclick=async()=>{
+    await pushCloud();
+    const msg = hasPending()
+      ? "Some changes haven't reached your account yet because you're offline. If you sign out now they'll be lost. Sign out anyway?"
+      : "Sign out? Your data stays in your account and is removed from this device until you sign in again.";
+    if(!await ask(msg,"Sign out")) return;
+    try{ await api("logout",{method:"POST"}); }catch(e){}
+    clearPhone(); setSync("Signed out"); render(); toast("Signed out");
+  };
+  const del=$("#acDel"); if(del) del.onclick=()=>sheet("Delete account",`
+    <p style="margin-top:12px">This permanently deletes your account and every vehicle, trip, reading and expense saved in it. It can't be undone.</p>
+    <p class="small muted">Want a copy first? Use “Save a DriveMate data file” in Setup before deleting.</p>
+    <label for="dPass">Enter your password to confirm</label><input id="dPass" type="password" autocomplete="current-password">
+    <div class="err" id="dErr"></div>
+    <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn danger" id="dGo">Delete account</button></div>`,
+  (root,close)=>{
+    $("#dGo",root).onclick=async()=>{
+      try{ await api("account",{method:"DELETE",body:{password:$("#dPass",root).value}}); }
+      catch(e){ $("#dErr",root).textContent=e.message; return; }
+      close(); clearPhone(); setSync("Saved on this phone"); accountMode="create"; render(); toast("Account deleted");
+    };
+  });
+}
+
+/* ---------- app updates (Android app) ---------- */
+const UPDATE_REPO = "jclissoldyasa-boop/drivemate"; // "owner/repo" on GitHub; each release carries DriveMate.apk and a tag ending in its version code
+let update=null; // {version,url,name} when a newer release exists
+function appVersion(){ try{ return +NATIVE.version()||0; }catch(e){ return 0; } }
+async function checkUpdate(manual){
+  if(!NATIVE||!UPDATE_REPO) return;
+  if(!manual && Date.now()-(+lsGet("dm.updChecked")||0) < 12*36e5){
+    try{ update=JSON.parse(lsGet("dm.update")||"null"); }catch(e){}
+    if(update && update.version<=appVersion()) update=null;
+    return;
+  }
+  try{
+    const r=await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,{headers:{Accept:"application/vnd.github+json"}});
+    if(!r.ok) throw new Error(r.status);
+    const j=await r.json();
+    const v=+((String(j.tag_name).match(/(\d+)$/)||[])[1])||0;
+    const apk=(j.assets||[]).find(a=>/\.apk$/i.test(a.name));
+    update = apk && v>appVersion() ? {version:v,url:apk.browser_download_url,name:j.name||j.tag_name} : null;
+    lsSet("dm.updChecked",String(Date.now())); lsSet("dm.update",update?JSON.stringify(update):null);
+    if(manual) toast(update?"An update is available":"DriveMate is up to date");
+    if(!screenStack.length) render();
+  }catch(e){ if(manual) toast("Couldn't check for updates. Are you online?"); }
+}
+function installUpdate(){
+  if(!update) return;
+  try{ NATIVE.openUrl(update.url); }catch(e){}
+  toast("Downloading. When it finishes, open it and tap Update");
+}
+function updateBanner(){
+  if(!update || lsGet("dm.updSkip")===String(update.version)) return "";
+  return `<div class="banner" style="background:var(--biz-soft);border-color:var(--biz)"><strong style="color:var(--biz)">Update available.</strong> A new version of DriveMate is ready. Your data stays as it is.
+    <div class="row" style="margin-top:10px"><button class="btn ghost" id="updLater">Later</button><button class="btn road" id="updGo">Update</button></div></div>`;
+}
+function bindUpdate(){
+  const g=$("#updGo"); if(g) g.onclick=installUpdate;
+  const l=$("#updLater"); if(l) l.onclick=()=>{ lsSet("dm.updSkip",String(update.version)); render(); };
+  const c=$("#updCheck"); if(c) c.onclick=()=>{ if(update) installUpdate(); else { c.textContent="Checking…"; checkUpdate(true); } };
+}
+
+/* ---------- help: bug reports ---------- */
+const recentErrors=[];
+window.addEventListener("error",e=>{ recentErrors.push(`${e.message} @${e.lineno||"?"}`); if(recentErrors.length>5) recentErrors.shift(); });
+window.addEventListener("unhandledrejection",e=>{ recentErrors.push("Promise: "+String(e.reason&&e.reason.message||e.reason)); if(recentErrors.length>5) recentErrors.shift(); });
+function diagnostics(){
+  const d={ app: NATIVE?`Android app ${appVersion()}`:inClaude()?"claude.ai":"Web", device: navigator.userAgent, screen:`${innerWidth}×${innerHeight}`,
+    account: inClaude()?"claude.ai":account?"signed in":"none", sync: syncState, vehicles: S.vehicles.length, trips: S.trips.length,
+    expenses: S.expenses.length, tripInProgress: !!S.live, tab, errors: recentErrors.length?recentErrors.join(" | "):"none" };
+  if(NATIVE){ try{ d.native=nState(); d.permissions=nPerms(); }catch(e){} }
+  return d;
+}
+function helpPanel(){
+  return `<h2>Help</h2><div class="panel">
+    ${NATIVE&&UPDATE_REPO?`<div class="kv"><span>App version</span><b>${appVersion()}</b></div>
+    <button class="btn ${update?"road":"ghost"} block" id="updCheck" style="margin-top:12px">${update?"Install update":"Check for updates"}</button>`:""}
+    <button class="btn ghost block" id="bugBtn" style="margin-top:${NATIVE&&UPDATE_REPO?10:0}px">Report a problem</button></div>`;
+}
+function bugSheet(){
+  sheet("Report a problem",`
+    <p class="muted small" style="margin-top:12px">Tell us what happened and what you expected. Details like the app version and phone model are added for you. Your trips and expenses aren't sent.</p>
+    <label for="bMsg">What went wrong?</label><textarea id="bMsg" rows="6" placeholder="e.g. I ended a trip but it didn't show up in the Log"></textarea>
+    <label for="bMail">Your email <span class="muted">(optional, if you'd like a reply)</span></label><input id="bMail" type="email" autocapitalize="off" value="${esc(account?account.email:"")}">
+    <p class="small muted" style="margin-top:6px">Reports may be posted publicly so they can be fixed. Your email is never included.</p>
+    <div class="err" id="bErr"></div>
+    <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn road" id="bGo">Send report</button></div>`,
+  (root,close)=>{
+    $("#bGo",root).onclick=async()=>{
+      const b=$("#bGo",root); b.disabled=true; b.textContent="Sending…";
+      try{ await api("report",{method:"POST",body:{message:$("#bMsg",root).value,contact:$("#bMail",root).value,diag:diagnostics()}}); close(); toast("Thanks, your report was sent"); }
+      catch(e){ $("#bErr",root).textContent=e.message; b.disabled=false; b.textContent="Send report"; }
+    };
+  });
+}
+
+/* ---------- welcome ---------- */
+function welcome(){
+  return `${header("Welcome")}
+  <div class="panel"><h3>Set up your first vehicle</h3>
+  <p class="muted small">Enter the odometer as it reads today. Every trip and weekly reading builds from this number.</p>
+  ${vehicleForm({})}
+  <div class="err" id="verr"></div>
+  <button class="btn road block" id="vsave" style="margin-top:14px">Add vehicle</button></div>`;
+}
+function bindWelcome(){ $("#vsave").onclick=()=>saveVehicle(null,true); }
+
+/* ---------- drive ---------- */
+function odoPlate(n){
+  const s=String(Math.round(n)).padStart(6,"0");
+  return `<div class="plate" role="img" aria-label="Odometer ${fmtKm(n)} kilometres">${[...s].map(ch=>`<div class="digit"><div class="reel" style="transform:translateY(-${+ch*52}px)">${[0,1,2,3,4,5,6,7,8,9].map(d=>`<span>${d}</span>`).join("")}</div></div>`).join("")}<span class="unit">km</span></div>`;
+}
+function drive(){
+  const v=activeVeh(); const fy=fyOf(Date.now()); const c=claim(v.id,fy);
+  const lw=lastWeekly(v.id); const due=!lw || (Date.now()-lw.ts)>7*864e5;
+  const L=S.live;
+  let body="";
+  if(L){
+    const lv=veh(L.vid);
+    body=`<div class="panel">
+      <div class="live"><span><span class="pulse" aria-hidden="true"></span><b>On the road</b> <span class="muted small">${esc(lv?lv.name:"")}</span></span><span class="t" id="elapsed">0:00</span></div>
+      <p class="small muted">Started ${tFmt(L.startTs)} at ${fmtKm(L.startOdo)} km</p>
+      <p class="small muted" id="gpsline">${gpsLine()}</p>
+      <label>This trip is</label>
+      <div class="seg" role="group"><button class="biz" data-ltype="business" aria-pressed="${L.type==="business"}">Business</button><button data-ltype="private" aria-pressed="${L.type!=="business"}">Private</button></div>
+      <label for="lpurpose">Reason for the trip <span class="muted">(optional)</span></label>
+      <input id="lpurpose" value="${esc(L.purpose)}" placeholder="e.g. Mow and edge – 12 Smith St, Melton">
+      ${recentPurposes().length?`<div class="quick">${recentPurposes().map(p=>`<button data-qp="${esc(p)}">${esc(p)}</button>`).join("")}</div>`:""}
+      <button class="btn biz block" id="endTrip" style="margin-top:16px;min-height:56px">End trip</button>
+      <button class="linkbtn" id="cancelTrip">Discard this trip</button>
+    </div>`;
+  }else{
+    body=`<button class="btn road start" id="start">Start trip</button>
+    <div class="duo"><button class="btn" id="fuelUp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16M3 21h13M4 10h11M15 8l3 3v6a1.5 1.5 0 0 0 3 0V9l-3-3"/></svg>Fuel up</button><button class="btn ghost" id="addExpD"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L3 17.8V21h3.2l6.3-6.3a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>Add expense</button></div>
+    <div class="row" style="margin-top:4px"><button class="linkbtn" id="addPast" style="text-align:left">Add a past trip</button><button class="linkbtn" id="odoNow" style="text-align:right">Record odometer</button></div>`;
+  }
+  return `${header("")}
+  ${updateBanner()}
+  ${vehicleChips(v.id)}
+  ${due&&!L?`<div class="banner"><strong>Weekly odometer due.</strong> ${lw?`Last reading ${fmtKm(lw.value)} km on ${dFmt(lw.ts)}.`:"No weekly reading yet."}
+    <div class="row" style="margin-top:8px"><input id="wkOdo" inputmode="numeric" placeholder="Odometer now" aria-label="Odometer reading now"><button class="btn" id="wkSave" style="flex:0 0 auto">Save</button></div></div>`:""}
+  <div class="plate-wrap">${odoPlate(L?L.startOdo:currentOdo(v.id))}<div class="plate-sub">${esc(v.name)}${v.rego?` · ${esc(v.rego)}`:""}</div></div>
+  ${body}
+  <h2>${fyLabel(fy)} so far</h2>
+  <div class="panel"><div class="stats">
+    <div class="stat"><div class="v">${fmtKm(c.biz)} km</div><div class="k">Business kilometres</div></div>
+    <div class="stat"><div class="v">${pct(c.pctBiz)}</div><div class="k">Business use</div></div>
+    <div class="stat"><div class="v">${money(c.deduction)}</div><div class="k">Deduction (${c.best==="cents"?"cents per km":"logbook"})</div></div>
+    <div class="stat big"><div class="v">${money(c.saving)}</div><div class="k">Estimated tax saving</div></div>
+  </div></div>`;
+}
+function recentPurposes(){ const seen=[]; S.trips.slice().sort((a,b)=>b.startTs-a.startTs).forEach(t=>{ if(t.type==="business"&&t.purpose&&!seen.includes(t.purpose)&&seen.length<4) seen.push(t.purpose); }); return seen; }
+function bindDrive(){
+  bindUpdate();
+  document.querySelectorAll("[data-veh]").forEach(b=>b.onclick=()=>{ S.settings.active=b.dataset.veh; persist(); render(); });
+  const s=$("#start"); if(s) s.onclick=()=>startTrip(activeVeh().id);
+  const ap=$("#addPast"); if(ap) ap.onclick=()=>tripSheet(null);
+  const on=$("#odoNow"); if(on) on.onclick=()=>odoSheet(null);
+  const fu=$("#fuelUp"); if(fu) fu.onclick=()=>expSheet(null,"Fuel");
+  const ae=$("#addExpD"); if(ae) ae.onclick=()=>expSheet(null,"Maintenance & servicing");
+  const ws=$("#wkSave"); if(ws) ws.onclick=async()=>{ const val=+$("#wkOdo").value; const v=activeVeh(); if(!val||val<0){ toast("Enter the odometer reading"); return;} if(val<currentOdo(v.id)-1 && !await ask("That's lower than the last known reading. Save anyway?","Save anyway")) return; S.odo.push({id:uid(),vid:v.id,ts:Date.now(),value:val,note:"Weekly reading"}); persist(); render(); toast("Odometer saved"); };
+  if(S.live){
+    const el=$("#elapsed"); const upd=()=>{ const m=Math.floor((Date.now()-S.live.startTs)/60000); el.textContent=`${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`; };
+    const gl=$("#gpsline");
+    const upd2=()=>{ upd(); if(gl) gl.innerHTML=gpsLine(); };
+    upd2(); tick=setInterval(upd2,NATIVE?5000:15000);
+    if(gl) gl.onclick=e=>{ const b=e.target.closest("[data-fixloc]"); if(!b||!NATIVE) return; try{ b.dataset.fixloc==="gps"?NATIVE.openLocationSettings():NATIVE.askLocation(); }catch(err){} };
+    document.querySelectorAll("[data-ltype]").forEach(b=>b.onclick=()=>{ S.live.type=b.dataset.ltype; persist(); render(); });
+    $("#lpurpose").oninput=e=>{ S.live.purpose=e.target.value; saveLocal(); };
+    $("#lpurpose").onchange=()=>persist();
+    document.querySelectorAll("[data-qp]").forEach(b=>b.onclick=()=>{ S.live.purpose=b.dataset.qp; persist(); render(); });
+    $("#endTrip").onclick=endTripSheet;
+    $("#cancelTrip").onclick=async()=>{ if(await ask("Discard this trip? Nothing will be saved.","Discard trip")){ S.live=null; stopGps(); persist(); render(); } };
+  }
+}
+function endTripSheet(){
+  const L=S.live; const gps=Math.round(liveGpsKm());
+  sheet("End trip",`
+    <p class="muted small">Enter the kilometres you travelled, or read the odometer off the dash. The app works out the other.</p>
+    <div class="seg" role="group" style="margin-top:10px"><button data-em="km" aria-pressed="true">Km travelled</button><button data-em="odo" aria-pressed="false">End odometer</button></div>
+    <div id="emKm"><label for="ekm">Kilometres travelled</label><input id="ekm" inputmode="decimal" value="${gps>0?gps:""}" placeholder="e.g. 18"></div>
+    <div id="emOdo" class="hidden"><label for="eeo">End odometer</label><input id="eeo" inputmode="numeric" value="${gps>0?L.startOdo+gps:""}" placeholder="Reading now"></div>
+    <label for="eso">Start odometer</label><input id="eso" inputmode="numeric" value="${L.startOdo}">
+    <p class="small muted" id="ecalc" style="margin-top:6px"></p>
+    <label for="ep">Reason for the trip <span class="muted">(optional)</span></label><input id="ep" value="${esc(L.purpose)}" placeholder="Optional">
+    <div class="err" id="eerr"></div>
+    <div class="actions"><button class="btn ghost" data-close>Keep driving</button><button class="btn biz" id="esave">Save trip</button></div>`,
+  (root,close)=>{
+    let mode="km";
+    const km=$("#ekm",root), eo=$("#eeo",root), so=$("#eso",root), calc=$("#ecalc",root);
+    const endVal=()=> mode==="km" ? (+so.value)+Math.round(+km.value||0) : +eo.value;
+    const upd=()=>{ const e=endVal(), s=+so.value; calc.textContent = (e&&e>=s) ? (mode==="km"?`End odometer will be ${fmtKm(e)} km`:`${fmtKm(e-s)} km travelled`) : ""; };
+    root.querySelectorAll("[data-em]").forEach(b=>b.onclick=()=>{ const e=endVal(); mode=b.dataset.em; root.querySelectorAll("[data-em]").forEach(x=>x.setAttribute("aria-pressed",x===b));
+      $("#emKm",root).classList.toggle("hidden",mode!=="km"); $("#emOdo",root).classList.toggle("hidden",mode!=="odo");
+      if(mode==="odo"&&e>+so.value) eo.value=e; if(mode==="km"&&+eo.value>+so.value) km.value=+eo.value-(+so.value); upd(); (mode==="km"?km:eo).focus(); });
+    [km,eo,so].forEach(i=>i.oninput=upd); upd(); km.focus();
+    $("#esave",root).onclick=()=>{
+      const s=+so.value, e=endVal(), p=$("#ep",root).value.trim();
+      if(!e||e<=s&&mode==="km"&&!(+km.value)){ $("#eerr",root).textContent= mode==="km"?"Enter the kilometres travelled.":"Enter the end odometer."; return; }
+      if(e<s){ $("#eerr",root).textContent="End odometer must be the same as or higher than the start."; return; }
+      const t={id:uid(),vid:L.vid,startTs:L.startTs,endTs:Date.now(),startOdo:s,endOdo:e,type:L.type,purpose:p};
+      S.trips.push(t); S.live=null; stopGps(); persist({months:[monthKey(t.startTs)]}); close(); render(); toast(`Trip saved · ${fmtKm(e-s)} km`);
+    };
+  });
+}
+
+/* ---------- log (trips / odometer / expenses) ---------- */
+function trips(){
+  const v=activeVeh();
+  let inner="";
+  if(tripsView==="trips"){
+    const list=S.trips.filter(t=>t.vid===v.id).sort((a,b)=>b.startTs-a.startTs);
+    if(!list.length) inner=`<div class="empty">No trips yet. Start one from the Drive tab, or add a past trip.</div>`;
+    else{ let last=""; inner=`<ul class="list">`+list.map(t=>{ const d=dFmt(t.startTs); const h=d!==last?`<li class="day">${d}</li>`:""; last=d;
+      return h+`<li><button class="item" data-trip="${t.id}"><div><span class="tag ${t.type==="business"?"b":"p"}">${t.type==="business"?"Business":"Private"}</span><span class="small muted">${tFmt(t.startTs)}${t.endTs?`–${tFmt(t.endTs)}`:""}</span><div>${esc(t.purpose||"No reason entered")}</div><div class="small muted">${fmtKm(t.startOdo)} → ${fmtKm(t.endOdo)}</div></div><span class="km">${fmtKm(tripKm(t))} km</span></button></li>`; }).join("")+`</ul>`; }
+    inner=`<button class="btn block" id="addTrip" style="margin-bottom:6px">Add a trip</button>`+inner;
+  }else if(tripsView==="odo"){
+    const list=S.odo.filter(o=>o.vid===v.id).sort((a,b)=>b.ts-a.ts);
+    inner=`<button class="btn block" id="addOdo" style="margin-bottom:6px">Record odometer</button>`+(list.length?`<ul class="list">${list.map(o=>`<li><button class="item" data-odo="${o.id}"><div><div>${dFmt(o.ts)}</div><div class="small muted">${esc(o.note||"")}</div></div><span class="km">${fmtKm(o.value)}</span></button></li>`).join("")}</ul>`:`<div class="empty">Record the odometer once a week so your total kilometres are accurate.</div>`);
+  }else{
+    const list=S.expenses.filter(e=>e.vid===v.id).sort((a,b)=>b.ts-a.ts);
+    inner=`<p class="small muted">Running costs for the logbook method. Photograph each receipt — the ATO asks you to keep them.</p><div class="duo" style="margin-bottom:6px;margin-top:0"><button class="btn" id="addFuel">Fuel up</button><button class="btn ghost" id="addExp">Add expense</button></div>`+(list.length?`<ul class="list">${list.map(e=>`<li><button class="item" data-exp="${e.id}"><div><div>${esc(e.cat)}</div><div class="small muted">${dFmt(e.ts)}${e.litres?` · ${(+e.litres).toFixed(1)} L`:""}${e.note?` · ${esc(e.note)}`:""}${e.receipt?" · receipt":""}</div></div><span class="km">${money(+e.amount)}</span></button></li>`).join("")}</ul>`:`<div class="empty">No expenses recorded.</div>`);
+  }
+  return `${header("Log")}${vehicleChips(v.id)}
+  <div class="seg" role="group" style="margin-bottom:14px">
+    <button data-tv="trips" aria-pressed="${tripsView==="trips"}">Trips</button><button data-tv="odo" aria-pressed="${tripsView==="odo"}">Odometer</button><button data-tv="exp" aria-pressed="${tripsView==="exp"}">Expenses</button></div>
+  ${inner}`;
+}
+function bindTrips(){
+  document.querySelectorAll("[data-veh]").forEach(b=>b.onclick=()=>{ S.settings.active=b.dataset.veh; persist(); render(); });
+  document.querySelectorAll("[data-tv]").forEach(b=>b.onclick=()=>{ tripsView=b.dataset.tv; render(); });
+  const a=$("#addTrip"); if(a) a.onclick=()=>tripSheet(null);
+  const o=$("#addOdo"); if(o) o.onclick=()=>odoSheet(null);
+  const e=$("#addExp"); if(e) e.onclick=()=>expSheet(null,"Maintenance & servicing");
+  const af=$("#addFuel"); if(af) af.onclick=()=>expSheet(null,"Fuel");
+  document.querySelectorAll("[data-trip]").forEach(b=>b.onclick=()=>tripSheet(S.trips.find(t=>t.id===b.dataset.trip)));
+  document.querySelectorAll("[data-odo]").forEach(b=>b.onclick=()=>odoSheet(S.odo.find(t=>t.id===b.dataset.odo)));
+  document.querySelectorAll("[data-exp]").forEach(b=>b.onclick=()=>expSheet(S.expenses.find(t=>t.id===b.dataset.exp)));
+}
+function tripSheet(t){
+  const v=activeVeh(); const isNew=!t;
+  const base=t||{vid:v.id,startTs:Date.now()-3600e3,endTs:Date.now(),startOdo:currentOdo(v.id),endOdo:"",type:"business",purpose:""};
+  sheet(isNew?"Add a trip":"Edit trip",`
+    <label for="tv">Vehicle</label><select id="tv">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===base.vid?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+    <div class="row"><div><label for="ts">Started</label><input id="ts" type="datetime-local" value="${isoLocal(base.startTs)}"></div><div><label for="te">Finished</label><input id="te" type="datetime-local" value="${isoLocal(base.endTs||base.startTs)}"></div></div>
+    <div class="row"><div><label for="tso">Start odometer</label><input id="tso" inputmode="numeric" value="${base.startOdo}"></div><div><label for="tkm">Km travelled</label><input id="tkm" inputmode="decimal" value="${base.endOdo!==""?tripKm(base):""}"></div></div>
+    <label for="teo">End odometer</label><input id="teo" inputmode="numeric" value="${base.endOdo}">
+    <label>Trip type</label><div class="seg" role="group"><button class="biz" data-tt="business" aria-pressed="${base.type==="business"}">Business</button><button data-tt="private" aria-pressed="${base.type!=="business"}">Private</button></div>
+    <label for="tp">Reason for the trip <span class="muted">(optional)</span></label><input id="tp" value="${esc(base.purpose)}">
+    <div class="err" id="terr"></div>
+    <div class="actions">${isNew?`<button class="btn ghost" data-close>Cancel</button>`:`<button class="btn danger" id="tdel">Delete</button>`}<button class="btn biz" id="tsave">Save trip</button></div>`,
+  (root,close)=>{
+    let type=base.type;
+    const tso=$("#tso",root), tkm=$("#tkm",root), teo=$("#teo",root);
+    tkm.oninput=()=>{ if(tkm.value!=="") teo.value=(+tso.value)+Math.round(+tkm.value); };
+    teo.oninput=()=>{ if(teo.value!=="") tkm.value=Math.max(0,(+teo.value)-(+tso.value)); };
+    tso.oninput=()=>{ if(tkm.value!=="") teo.value=(+tso.value)+Math.round(+tkm.value); };
+    root.querySelectorAll("[data-tt]").forEach(b=>b.onclick=()=>{ type=b.dataset.tt; root.querySelectorAll("[data-tt]").forEach(x=>x.setAttribute("aria-pressed",x===b)); });
+    $("#tsave",root).onclick=()=>{
+      const so=+$("#tso",root).value, eo=+$("#teo",root).value, p=$("#tp",root).value.trim();
+      const st=new Date($("#ts",root).value).getTime(), en=new Date($("#te",root).value).getTime();
+      if(!st){ $("#terr",root).textContent="Enter when the trip started."; return; }
+      if(!eo||eo<so){ $("#terr",root).textContent="End odometer must be the same as or higher than the start."; return; }
+      const months=[];
+      if(t){ months.push(monthKey(t.startTs)); Object.assign(t,{vid:$("#tv",root).value,startTs:st,endTs:en||st,startOdo:so,endOdo:eo,type,purpose:p}); months.push(monthKey(t.startTs)); }
+      else{ const n={id:uid(),vid:$("#tv",root).value,startTs:st,endTs:en||st,startOdo:so,endOdo:eo,type,purpose:p}; S.trips.push(n); months.push(monthKey(n.startTs)); }
+      persist({months}); close(); render(); toast("Trip saved");
+    };
+    const d=$("#tdel",root); if(d) d.onclick=async()=>{ if(!await ask("Delete this trip?")) return; S.trips=S.trips.filter(x=>x.id!==t.id); persist({months:[monthKey(t.startTs)]}); close(); render(); toast("Trip deleted"); };
+  });
+}
+function odoSheet(o){
+  const v=activeVeh(); const isNew=!o; const base=o||{vid:v.id,ts:Date.now(),value:"",note:"Weekly reading"};
+  sheet(isNew?"Record odometer":"Edit reading",`
+    <label for="ov">Vehicle</label><select id="ov">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===base.vid?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+    <div class="row"><div><label for="od">Date</label><input id="od" type="date" value="${isoDate(base.ts)}"></div><div><label for="oval">Odometer (km)</label><input id="oval" inputmode="numeric" value="${base.value}"></div></div>
+    <label for="on">Note</label><input id="on" value="${esc(base.note)}">
+    <div class="err" id="oerr"></div>
+    <div class="actions">${isNew?`<button class="btn ghost" data-close>Cancel</button>`:`<button class="btn danger" id="odel">Delete</button>`}<button class="btn" id="osave">Save reading</button></div>`,
+  (root,close)=>{
+    $("#osave",root).onclick=()=>{
+      const val=+$("#oval",root).value; const d=$("#od",root).value;
+      if(!val){ $("#oerr",root).textContent="Enter the odometer reading."; return; }
+      const ts = d===isoDate(Date.now()) ? Date.now() : new Date(d+"T12:00").getTime();
+      const rec={vid:$("#ov",root).value,ts,value:val,note:$("#on",root).value.trim()};
+      if(o) Object.assign(o,rec); else S.odo.push({id:uid(),...rec});
+      persist(); close(); render(); toast("Odometer saved");
+    };
+    const dl=$("#odel",root); if(dl) dl.onclick=async()=>{ if(!await ask("Delete this reading?")) return; S.odo=S.odo.filter(x=>x.id!==o.id); persist(); close(); render(); };
+  });
+}
+function expSheet(e,presetCat){
+  const v=activeVeh(); const isNew=!e; const base=e||{vid:v.id,ts:Date.now(),cat:presetCat||"Fuel",amount:"",note:"",litres:"",receipt:null};
+  const isFuel=()=>$("#xc").value==="Fuel";
+  sheet(isNew?(base.cat==="Fuel"?"Fuel up":"Add expense"):"Edit expense",`
+    <input type="file" id="xfile" accept="image/*" capture="environment" class="hidden">
+    <button class="cam" id="xcam" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>${base.receipt?"Replace receipt photo":"Photograph receipt"}</button>
+    <div class="receipt ${base.receipt||""?"":"hidden"}" id="xprev"><img id="ximg" alt="Receipt photo" src="${base.receipt?"/_blob/"+base.receipt:""}"><span class="scan" id="xscan">${base.receipt?"Receipt saved":""}</span></div>
+    <label for="xc">Category</label><select id="xc">${EXP_CATS.concat(EXP_CATS.includes(base.cat)?[]:[base.cat]).map(c=>`<option ${c===base.cat?"selected":""}>${esc(c)}</option>`).join("")}</select>
+    <div class="row"><div><label for="xd">Date</label><input id="xd" type="date" value="${isoDate(base.ts)}"></div><div><label for="xa">Amount ($)</label><input id="xa" inputmode="decimal" value="${base.amount}"></div></div>
+    <div id="xfuel" class="${base.cat==="Fuel"?"":"hidden"}"><div class="row"><div><label for="xl">Litres</label><input id="xl" inputmode="decimal" value="${base.litres||""}"></div>${isNew?`<div><label for="xo">Odometer now</label><input id="xo" inputmode="numeric" placeholder="Optional"></div>`:"<div></div>"}</div></div>
+    <label for="xn">Supplier / note</label><input id="xn" value="${esc(base.note)}" placeholder="e.g. Ampol Melton, Midas service">
+    <label for="xv">Vehicle</label><select id="xv">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===base.vid?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+    <div class="err" id="xerr"></div>
+    <div class="actions">${isNew?`<button class="btn ghost" data-close>Cancel</button>`:`<button class="btn danger" id="xdel">Delete</button>`}<button class="btn" id="xsave">Save expense</button></div>`,
+  (root,close)=>{
+    let photo=null, busy=false;
+    const scan=$("#xscan",root);
+    $("#xc",root).onchange=()=>$("#xfuel",root).classList.toggle("hidden",$("#xc",root).value!=="Fuel");
+    $("#xcam",root).onclick=()=>$("#xfile",root).click();
+    $("#xfile",root).onchange=async ev=>{
+      const f=ev.target.files&&ev.target.files[0]; if(!f) return;
+      photo=await shrinkImage(f);
+      $("#ximg",root).src=URL.createObjectURL(photo); $("#xprev",root).classList.remove("hidden");
+      busy=true; scan.textContent="Reading the receipt…";
+      const r=await readReceipt(photo);
+      busy=false;
+      if(!r){ scan.textContent="Photo attached. Couldn't read it automatically, so enter the details below."; return; }
+      if(r.category&&EXP_CATS.includes(r.category)) { $("#xc",root).value=r.category; $("#xc",root).onchange(); }
+      if(r.total) $("#xa",root).value=(+r.total).toFixed(2);
+      if(r.date&&/^\d{4}-\d{2}-\d{2}$/.test(r.date)) $("#xd",root).value=r.date;
+      if(r.litres) $("#xl",root).value=(+r.litres).toFixed(2);
+      if(r.supplier) $("#xn",root).value=r.supplier+(r.description?` – ${r.description}`:"");
+      scan.textContent="Details filled in from the receipt. Check them before saving.";
+    };
+    $("#xsave",root).onclick=async()=>{
+      if(busy){ $("#xerr",root).textContent="Still reading the receipt — one moment."; return; }
+      const amt=+$("#xa",root).value; if(!amt){ $("#xerr",root).textContent="Enter the amount."; return; }
+      const btn=$("#xsave",root); btn.disabled=true; btn.textContent="Saving…";
+      let receipt=base.receipt||null;
+      if(photo){ const id=await uploadReceipt(photo); if(id) receipt=id; else toast("Receipt photo couldn't be stored — details saved"); }
+      const cat=$("#xc",root).value, d=$("#xd",root).value;
+      const rec={vid:$("#xv",root).value,ts:d===isoDate(Date.now())?Date.now():new Date(d+"T12:00").getTime(),cat,amount:amt,note:$("#xn",root).value.trim(),litres:cat==="Fuel"?(+$("#xl",root).value||""):"",receipt};
+      if(e) Object.assign(e,rec); else S.expenses.push({id:uid(),...rec});
+      const xo=$("#xo",root); if(xo&&+xo.value) S.odo.push({id:uid(),vid:rec.vid,ts:Date.now(),value:+xo.value,note:"Fuel up"});
+      persist(); close(); render(); toast(cat==="Fuel"?"Fuel saved":"Expense saved");
+    };
+    const dl=$("#xdel",root); if(dl) dl.onclick=async()=>{ if(!await ask("Delete this expense?")) return; S.expenses=S.expenses.filter(x=>x.id!==e.id); persist(); close(); render(); };
+  });
+}
+async function shrinkImage(file){
+  try{
+    const img=await createImageBitmap(file);
+    const s=Math.min(1,1600/Math.max(img.width,img.height));
+    const c=document.createElement("canvas"); c.width=Math.round(img.width*s); c.height=Math.round(img.height*s);
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+    return await new Promise(r=>c.toBlob(b=>r(b||file),"image/jpeg",.82));
+  }catch(e){ return file; }
+}
+let sampleNs;
+async function readReceipt(blob){
+  try{
+    if(sampleNs===undefined) sampleNs = (window.claude&&claude.use) ? await claude.use("sample") : null;
+    if(!sampleNs) return null;
+    const lim=await sampleNs.limits().catch(()=>null); if(!lim||!lim.images) return null;
+    const prompt=`The attached image is a photo of an Australian receipt for a vehicle expense (fuel, servicing, repairs, registration, insurance, tyres, tolls, parking, car wash, etc).
+Read it and reply with ONLY a JSON object, no other text:
+{"date":"YYYY-MM-DD or null","total":number or null (total paid incl. GST, in dollars),"litres":number or null (fuel litres if a fuel receipt),"supplier":"business name or null","description":"a few words on what was bought, or null","category":one of ${JSON.stringify(EXP_CATS)}}
+Australian dates are day/month/year. If a value can't be read, use null.`;
+    return await sampleNs.json(prompt,{images:[blob],modelTier:"quick"});
+  }catch(e){ return null; }
+}
+let assetsNs;
+async function uploadReceipt(blob){
+  try{
+    if(assetsNs===undefined) assetsNs = (window.claude&&claude.use) ? await claude.use("assets") : null;
+    if(!assetsNs) return null;
+    const r=await assetsNs.upload(blob); return r&&r.id||null;
+  }catch(e){ return null; }
+}
+
+/* ---------- report ---------- */
+function allFys(){ const ys=new Set([fyOf(Date.now())]); S.trips.forEach(t=>ys.add(fyOf(t.startTs))); return [...ys].sort((a,b)=>b-a); }
+function report(){
+  const v=veh(reportVid)||activeVeh(); reportVid=v.id;
+  const c=claim(v.id,reportFy); const lb=c.lb;
+  const lbHtml = lb ? `<div class="kv"><span>Logbook period</span><b>${dFmt(lb.from)} – ${dFmt(lb.to-864e5)}</b></div>
+      <div class="bar" aria-hidden="true"><i style="width:${lb.weeks/12*100}%"></i></div><p class="small muted">${lb.done?`<span class="ok">Complete.</span> This business-use percentage can be used for up to 5 years if your driving pattern stays similar.`:`Week ${lb.weeks} of 12. Keep logging every trip, business and private, until ${dFmt(lb.to-864e5)}.`}</p>
+      <div class="kv"><span>Odometer at start / end of period</span><b>${lb.startOdo!=null?fmtKm(lb.startOdo):"–"} / ${lb.endOdo!=null?fmtKm(lb.endOdo):"–"}</b></div>
+      <div class="kv"><span>Total km in period</span><b>${fmtKm(lb.total)}</b></div>
+      <div class="kv"><span>Business km in period</span><b>${fmtKm(lb.biz)}</b></div>
+      <div class="kv"><span>Business-use percentage</span><b>${pct(lb.pctBiz)}</b></div>`
+    : `<p class="small muted">No 12-week logbook period set. Add a start date in Setup if you want to use the logbook method.</p>`;
+  return `${header("Report")}
+  <div class="row" style="margin-bottom:12px">
+    <div><label for="rfy" style="margin-top:0">Financial year</label><select id="rfy">${allFys().map(y=>`<option value="${y}" ${y===reportFy?"selected":""}>${fyLabel(y)}</option>`).join("")}</select></div>
+    <div><label for="rv" style="margin-top:0">Vehicle</label><select id="rv">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===v.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select></div>
+  </div>
+  <div class="panel"><div class="stats">
+    <div class="stat"><div class="v">${fmtKm(c.total)} km</div><div class="k">Total driven</div></div>
+    <div class="stat"><div class="v">${fmtKm(c.biz)} km</div><div class="k">Business</div></div>
+    <div class="stat"><div class="v">${fmtKm(c.priv)} km</div><div class="k">Private (logged)</div></div>
+    <div class="stat"><div class="v">${c.trips.length}</div><div class="k">Trips</div></div>
+  </div></div>
+  <h2>Deduction</h2>
+  <div class="panel">
+    <div class="kv"><span>Cents per km<br><span class="small muted">${fmtKm(Math.min(c.biz,CPK_CAP))} km × ${Math.round(c.rate*100)}c${c.biz>CPK_CAP?" (capped at 5,000 km)":""}</span></span><b ${c.best==="cents"?'class="ok"':""}>${money(c.cents)}</b></div>
+    <div class="kv"><span>Logbook method<br><span class="small muted">${money(c.expTotal)} costs × ${pct(c.usePct)} (${c.pctSource})</span></span><b ${c.best==="logbook"?'class="ok"':""}>${money(c.logbook)}</b></div>
+    <div class="kv"><span>Estimated tax saving<br><span class="small muted">At ${pct(c.mr)} marginal rate${S.settings.medicare?" incl. Medicare levy":""}</span></span><b class="ok">${money(c.saving)}</b></div>
+    <p class="note">The higher method is highlighted. These are estimates — confirm with your accountant before you lodge.</p>
+  </div>
+  <h2>Running costs</h2>
+  <div class="panel">${(()=>{ const by={}; c.expenses.forEach(x=>{ by[x.cat]=(by[x.cat]||0)+(+x.amount||0); }); const ks=Object.keys(by).sort((a,b)=>by[b]-by[a]);
+    const L=c.expenses.filter(x=>x.cat==="Fuel").reduce((a,x)=>a+(+x.litres||0),0);
+    return ks.length? ks.map(k=>`<div class="kv"><span>${esc(k)}</span><b>${money(by[k])}</b></div>`).join("")+`<div class="kv"><span>Total</span><b>${money(c.expTotal)}</b></div>`+(L&&c.total?`<p class="note">${L.toFixed(0)} litres of fuel · about ${(L/c.total*100).toFixed(1)} L/100 km</p>`:"")
+    : `<p class="small muted">No expenses for this year yet. Use Fuel up or Add expense on the Drive tab.</p>`; })()}</div>
+  <h2>12-week logbook</h2>
+  <div class="panel">${lbHtml}</div>
+  <h2>Export</h2>
+  <div class="panel">
+    <p class="small muted">The logbook file lists every trip with dates, start and end odometer, kilometres and reason, plus the period summary the ATO asks for.</p>
+    <button class="btn block" id="expLog">Download logbook (CSV)</button>
+    <button class="btn ghost block" id="expSum" style="margin-top:10px">Download summary (CSV)</button>
+    <button class="btn ghost block" id="copySum" style="margin-top:10px">Copy summary</button>
+  </div>`;
+}
+function bindReport(){
+  $("#rfy").onchange=e=>{ reportFy=+e.target.value; render(); };
+  $("#rv").onchange=e=>{ reportVid=e.target.value; render(); };
+  $("#expLog").onclick=()=>exportCsv(logbookCsv(),`logbook-${slug(veh(reportVid).name)}-${fyLabel(reportFy)}.csv`);
+  $("#expSum").onclick=()=>exportCsv(summaryCsv(),`summary-${slug(veh(reportVid).name)}-${fyLabel(reportFy)}.csv`);
+  $("#copySum").onclick=async()=>{ try{ await navigator.clipboard.writeText(summaryText()); toast("Summary copied"); }catch(e){ toast("Copy isn't available here"); } };
+}
+const slug=s=>String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+const csvCell=v=>{ const s=String(v??""); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; };
+const toCsv=rows=>rows.map(r=>r.map(csvCell).join(",")).join("\r\n");
+function logbookCsv(){
+  const v=veh(reportVid), c=claim(v.id,reportFy);
+  const rows=[["Vehicle logbook",v.name],["Registration",v.rego||""],["Make / model",v.model||""],["Financial year",fyLabel(reportFy)],[]];
+  if(c.lb){ rows.push(["Logbook period start",isoDate(c.lb.from)],["Logbook period end",isoDate(c.lb.to-864e5)],["Odometer at start of period",c.lb.startOdo??""],["Odometer at end of period",c.lb.endOdo??""],["Total km in period",Math.round(c.lb.total)],["Business km in period",Math.round(c.lb.biz)],["Business-use percentage",pct(c.lb.pctBiz)],[]); }
+  rows.push(["Start date","Start time","End date","End time","Start odometer","End odometer","Kilometres","Type","Reason for journey"]);
+  c.trips.slice().sort((a,b)=>a.startTs-b.startTs).forEach(t=>rows.push([isoDate(t.startTs),tFmt(t.startTs),isoDate(t.endTs||t.startTs),tFmt(t.endTs||t.startTs),t.startOdo,t.endOdo,tripKm(t),t.type==="business"?"Business":"Private",t.purpose||""]));
+  rows.push([],["Odometer readings"],["Date","Odometer","Note"]);
+  const [f,to]=fyRange(reportFy);
+  S.odo.filter(o=>o.vid===v.id&&o.ts>=f&&o.ts<to).sort((a,b)=>a.ts-b.ts).forEach(o=>rows.push([isoDate(o.ts),o.value,o.note||""]));
+  return toCsv(rows);
+}
+function summaryCsv(){
+  const rows=[["Financial year",fyLabel(reportFy)],[],["Vehicle","Registration","Total km","Business km","Business %","Cents/km deduction","Logbook deduction","Car expenses","Best method","Est. tax saving"]];
+  S.vehicles.forEach(v=>{ const c=claim(v.id,reportFy); rows.push([v.name,v.rego||"",Math.round(c.total),Math.round(c.biz),pct(c.usePct),c.cents.toFixed(2),c.logbook.toFixed(2),c.expTotal.toFixed(2),c.best==="cents"?"Cents per km":"Logbook",c.saving.toFixed(2)]); });
+  rows.push([],["Expenses"],["Vehicle","Date","Category","Amount","Litres","Supplier / note","Receipt photo"]);
+  const [f,to]=fyRange(reportFy);
+  S.expenses.filter(e=>e.ts>=f&&e.ts<to).sort((a,b)=>a.ts-b.ts).forEach(e=>rows.push([veh(e.vid)?.name||"",isoDate(e.ts),e.cat,(+e.amount).toFixed(2),e.litres||"",e.note||"",e.receipt?"Yes":"No"]));
+  return toCsv(rows);
+}
+function summaryText(){
+  return `Vehicle summary ${fyLabel(reportFy)}\n`+S.vehicles.map(v=>{ const c=claim(v.id,reportFy); return `\n${v.name}${v.rego?` (${v.rego})`:""}\nTotal km: ${fmtKm(c.total)}\nBusiness km: ${fmtKm(c.biz)} (${pct(c.usePct)})\nCents per km: ${money(c.cents)}\nLogbook: ${money(c.logbook)}\nEst. tax saving: ${money(c.saving)}`; }).join("\n");
+}
+async function exportCsv(text,filename){ return exportFile(text,filename,"text/csv"); }
+async function exportFile(text,filename,mime){
+  if(NATIVE){ let r="error"; try{ r=NATIVE.saveFile(filename,text,mime); }catch(e){} toast(r==="saved"?`Saved to Downloads: ${filename}`:r==="shared"?"Choose where to save it":"Couldn't save the file"); return; }
+  let dl=null; try{ if(window.claude&&claude.use) dl=await claude.use("downloads"); }catch(e){}
+  if(dl){ try{ await dl.save({filename,data:new Blob([text],{type:mime})}); return; }catch(e){ if(e&&e.code==="declined"||e&&e.code==="cancelled") return; } }
+  try{ await navigator.clipboard.writeText(text); toast("Download isn't available here — copied instead"); }catch(e){ toast("Download isn't available in this view"); }
+}
+
+/* ---------- setup ---------- */
+function vehicleForm(v){
+  return `<label for="vn">Vehicle name</label><input id="vn" value="${esc(v.name||"")}" placeholder="e.g. Ute">
+  <div class="row"><div><label for="vr">Registration</label><input id="vr" value="${esc(v.rego||"")}" placeholder="ABC123"></div><div><label for="vm">Make / model</label><input id="vm" value="${esc(v.model||"")}" placeholder="Toyota HiLux"></div></div>
+  <div class="row"><div><label for="vo">Odometer at setup</label><input id="vo" inputmode="numeric" value="${v.startOdo??""}"></div><div><label for="vd">Setup date</label><input id="vd" type="date" value="${isoDate(v.startTs||Date.now())}"></div></div>
+  <label for="vl">12-week logbook start (optional)</label><input id="vl" type="date" value="${v.logStart?isoDate(v.logStart):""}">
+  <p class="small muted" style="margin-top:6px">Pick a start date for your 12 continuous weeks. Leave blank if you only use cents per km.</p>`;
+}
+function saveVehicle(v,first){
+  const name=$("#vn").value.trim(), odo=+$("#vo").value;
+  const err=$("#verr");
+  if(!name){ err.textContent="Give the vehicle a name."; return false; }
+  if($("#vo").value===""||odo<0){ err.textContent="Enter the odometer reading."; return false; }
+  const d=$("#vd").value, l=$("#vl").value;
+  const rec={name,rego:$("#vr").value.trim().toUpperCase(),model:$("#vm").value.trim(),startOdo:odo,startTs:new Date(d+"T00:00").getTime(),logStart:l?new Date(l+"T00:00").getTime():null};
+  if(v) Object.assign(v,rec); else { const n={id:uid(),...rec}; S.vehicles.push(n); S.settings.active=n.id; }
+  persist(); if(first){ tab="drive"; } render(); toast("Vehicle saved"); return true;
+}
+function webAutoPanel(){
+  return `  <h2>Start and end trips automatically</h2>
+  <div class="panel">
+    <p class="small">Your phone can open DriveMate for you. Add <code>?start=1</code> to this app's link to start a trip, and <code>?end=1</code> to open the End trip screen with the GPS kilometres filled in.</p>
+    <h3 style="margin-top:12px">Android: car wireless charger</h3>
+    <ol class="steps small"><li>Install MacroDroid from the Play Store.</li><li>New macro → Trigger: Battery/Power → Power Connected → tick Wireless only.</li><li>Action: Applications → Open Website → paste your link ending in <code>?start=1</code>.</li><li>Make a second macro: Power Disconnected → Wireless → Open Website with the link ending in <code>?end=1</code>.</li><li>When MacroDroid asks, allow "Display over other apps" so it can open DriveMate from the background.</li></ol>
+    <h3>iPhone</h3>
+    <ol class="steps small"><li>Shortcuts app → Automation → New → Charger → Is Connected (any charger), or CarPlay / Bluetooth for your car.</li><li>Action: Open URLs → your link ending in <code>?start=1</code>. Set it to run immediately.</li><li>Repeat with Is Disconnected and <code>?end=1</code>.</li></ol>
+    <p class="note">Keep DriveMate on screen while you drive so GPS keeps counting. For a second vehicle, use <code>?start=${S.vehicles[1]?.id||"VEHICLE-ID"}</code>.${S.vehicles.length?` Vehicle IDs: ${S.vehicles.map(v=>`${esc(v.name)} = <code>${v.id}</code>`).join(", ")}.`:""}</p>
+    <button class="btn ghost block" id="testStart" style="margin-top:8px">Test: start a trip now</button>
+  </div>
+`;
+}
+function autoPanel(){
+  const st=nState(), p=nPerms();
+  const row=(ok,label,id,btn)=>`<li class="chk"><span><span class="${ok?"ok":"no"}" aria-hidden="true">${ok?"✓":"!"}</span> ${label}</span>${ok?`<span class="small muted">Done</span>`:`<button class="btn ghost" id="${id}" style="flex:0 0 auto;min-height:40px;padding:0 14px">${btn}</button>`}</li>`;
+  return `<h2>Automatic trips</h2>
+  <div class="panel">
+    <label class="check" style="margin-top:0"><input type="checkbox" id="autoOn" ${st.auto?"checked":""}> Start a trip when the phone goes on the wireless charger</label>
+    <p class="small muted" style="margin-top:8px">Lift the phone off the charger and DriveMate asks if you've arrived. Tap End trip to save it with the GPS kilometres filled in. If the phone doesn't move 300 m within 10 minutes, the trip is cancelled, so a charger at home won't log trips.</p>
+    <ul class="list" style="margin-top:6px">
+      ${row(p.fine,"Location access","pLoc","Allow")}
+      ${row(p.background,"Location set to Allow all the time","pBg","Fix")}
+      ${row(p.notif,"Notifications on","pNot","Allow")}
+      ${row(p.battery,"Battery saver won't close DriveMate","pBat","Fix")}
+    </ul>
+  </div>`;
+}
+function setup(){
+  const tr=S.settings.taxRate;
+  const rates=[[0,"0% — under $18,201"],[.15,"15% — $18,201–$45,000 (2026–27)"],[.16,"16% — $18,201–$45,000 (2025–26)"],[.30,"30% — $45,001–$135,000"],[.37,"37% — $135,001–$190,000"],[.45,"45% — over $190,000"]];
+  return `${header("Setup")}
+  <h2 style="margin-top:0">Vehicles</h2>
+  <div class="panel">${S.vehicles.length?`<ul class="list">${S.vehicles.map(v=>`<li><button class="item" data-ev="${v.id}"><div><b>${esc(v.name)}</b><div class="small muted">${esc([v.rego,v.model].filter(Boolean).join(" · "))||"No details"}</div></div><span class="km">${fmtKm(currentOdo(v.id))}</span></button></li>`).join("")}</ul>`:""}
+  <button class="btn block" id="addV" style="margin-top:12px">Add vehicle</button></div>
+  <h2>Tax</h2>
+  <div class="panel">
+    <label for="tr" style="margin-top:0">Your marginal tax rate</label>
+    <select id="tr">${rates.map(([r,l])=>`<option value="${r}" ${Math.abs(r-tr)<1e-6?"selected":""}>${l}</option>`).join("")}</select>
+    <label class="check"><input type="checkbox" id="mc" ${S.settings.medicare?"checked":""}> Add 2% Medicare levy to the saving estimate</label>
+    <p class="note">Cents per km uses ${Math.round(rateFor(fyOf(Date.now()))*100)}c for ${fyLabel(fyOf(Date.now()))}, capped at 5,000 business km per car.</p>
+  </div>
+  ${NATIVE?autoPanel():webAutoPanel()}
+  ${accountPanel()}
+  ${helpPanel()}
+  <h2>Data</h2>
+  <div class="panel"><p class="small muted">${esc(syncState==="local"?"Saved on this phone":syncState)}.</p>
+  <button class="btn ghost block" id="backup">Download full backup (CSV)</button>
+  <button class="btn ghost block" id="saveData" style="margin-top:10px">Save a DriveMate data file</button>
+  <button class="btn ghost block" id="loadData" style="margin-top:10px">Load a DriveMate data file</button>
+  <input type="file" id="dataFile" hidden>
+  <p class="note">A data file holds everything: vehicles, trips, odometer readings and expenses. Use it to keep your own copy, or to move data between devices without an account.</p>
+  <button class="btn danger block" id="wipe" style="margin-top:10px">Delete all data</button></div>`;
+}
+function bindSetup(){
+  bindAccountPanel();
+  bindUpdate();
+  $("#bugBtn").onclick=bugSheet;
+  $("#addV").onclick=()=>vehSheet(null);
+  document.querySelectorAll("[data-ev]").forEach(b=>b.onclick=()=>vehSheet(veh(b.dataset.ev)));
+  $("#tr").onchange=e=>{ S.settings.taxRate=+e.target.value; persist(); };
+  $("#mc").onchange=e=>{ S.settings.medicare=e.target.checked; persist(); };
+  const ts=$("#testStart"); if(ts) ts.onclick=()=>{ tab="drive"; startTrip(activeVeh()?.id); };
+  if(NATIVE){
+    const ao=$("#autoOn"); if(ao) ao.onchange=e=>{ try{ NATIVE.setAuto(e.target.checked); if(e.target.checked&&!nPerms().fine) NATIVE.askLocation(); }catch(err){} toast(e.target.checked?"Automatic trips on":"Automatic trips off"); };
+    [["pLoc","askLocation"],["pBg","askLocation"],["pNot","askNotifications"],["pBat","askBattery"]].forEach(([id,fn])=>{ const b=$("#"+id); if(b) b.onclick=()=>{ try{ NATIVE[fn](); }catch(err){} }; });
+  }
+  $("#saveData").onclick=()=>{ const d=JSON.parse(JSON.stringify(S)); d.live=null;
+    exportFile(JSON.stringify({app:"DriveMate",version:1,saved:new Date().toISOString(),data:d}),`drivemate-data-${isoDate(Date.now())}.json`,"application/json"); };
+  $("#loadData").onclick=()=>$("#dataFile").click();
+  $("#dataFile").onchange=async e=>{
+    const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
+    let d=null; try{ d=JSON.parse(await f.text()); }catch(err){}
+    if(!d||d.app!=="DriveMate"||!d.data||!Array.isArray(d.data.vehicles)){ toast("That isn't a DriveMate data file"); return; }
+    const nv=d.data.vehicles.length, nt=(d.data.trips||[]).length;
+    if(!await ask(`Replace everything in DriveMate on this phone with the data file? It has ${nv} vehicle${nv===1?"":"s"} and ${nt} trip${nt===1?"":"s"}.`,"Replace data")) return;
+    if(S.live) stopGps();
+    S=Object.assign(blank(),d.data); S.live=null;
+    new Set(S.trips.map(t=>monthKey(t.startTs))).forEach(m=>dirtyMonths.add(m));
+    persist(); tab="drive"; render(); toast("Data loaded");
+  };
+  $("#backup").onclick=()=>{ const rows=[["Type","Vehicle","Date","Start odo","End odo","Km","Trip type","Reason / note","Amount"]];
+    S.trips.forEach(t=>rows.push(["Trip",veh(t.vid)?.name,isoLocal(t.startTs),t.startOdo,t.endOdo,tripKm(t),t.type,t.purpose,""]));
+    S.odo.forEach(o=>rows.push(["Odometer",veh(o.vid)?.name,isoDate(o.ts),o.value,"","","",o.note,""]));
+    S.expenses.forEach(e=>rows.push(["Expense",veh(e.vid)?.name,isoDate(e.ts),"","","","",`${e.cat}${e.note?" – "+e.note:""}`,e.amount]));
+    exportCsv(toCsv(rows),"drivemate-backup.csv"); };
+  $("#wipe").onclick=async()=>{ if(!await ask("Delete every vehicle, trip, reading and expense? This can't be undone.")) return;
+    const months=new Set(S.trips.map(t=>monthKey(t.startTs)));
+    S=blank(); saveLocal(); stopGps();
+    if(cloud&&me){ try{ const col=cloud.collection(`data/users/${me}`); await col.doc("config").delete(); for(const m of months) await col.doc(m).delete(); }catch(e){} }
+    tab="drive"; render(); toast("All data deleted"); };
+}
+function vehSheet(v){
+  sheet(v?"Edit vehicle":"Add vehicle",`${vehicleForm(v||{})}<div class="err" id="verr"></div>
+  <div class="actions">${v?`<button class="btn danger" id="vdel">Delete</button>`:`<button class="btn ghost" data-close>Cancel</button>`}<button class="btn" id="vsave">Save vehicle</button></div>`,
+  (root,close)=>{
+    $("#vsave",root).onclick=()=>{ if(saveVehicle(v,false)) close(); };
+    const d=$("#vdel",root); if(d) d.onclick=async()=>{ if(!await ask(`Delete ${v.name} and all its trips, readings and expenses?`)) return;
+      const months=new Set(S.trips.filter(t=>t.vid===v.id).map(t=>monthKey(t.startTs)));
+      S.vehicles=S.vehicles.filter(x=>x.id!==v.id); S.trips=S.trips.filter(t=>t.vid!==v.id); S.odo=S.odo.filter(o=>o.vid!==v.id); S.expenses=S.expenses.filter(e=>e.vid!==v.id);
+      if(S.live&&S.live.vid===v.id) S.live=null; if(S.settings.active===v.id) S.settings.active=S.vehicles[0]?.id||null;
+      persist({months:[...months]}); close(); render(); toast("Vehicle deleted"); };
+  });
+}
+
+/* ---------- ui helpers ---------- */
+const BACK_IC='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
+let screenStack=[];
+function sheet(title,html,bind){
+  const scr=document.createElement("section"); scr.className="screen";
+  scr.innerHTML=`<div class="screen-head"><button class="back" data-close>${BACK_IC}Back</button><h3>${esc(title)}</h3></div>${html}`;
+  screenStack.forEach(x=>x.hidden=true);
+  $("#app").hidden=true; $("#tabsNav").hidden=true;
+  $("#screens").appendChild(scr); screenStack.push(scr);
+  let closed=false;
+  const close=()=>{ if(closed) return; closed=true; scr.remove(); screenStack=screenStack.filter(x=>x!==scr);
+    const prev=screenStack[screenStack.length-1];
+    if(prev) prev.hidden=false; else { $("#app").hidden=false; $("#tabsNav").hidden=false; }
+    toTop(); };
+  scr.querySelectorAll("[data-close]").forEach(b=>b.onclick=close);
+  toTop();
+  bind(scr,close);
+}
+function closeAllScreens(){ screenStack.forEach(x=>x.remove()); screenStack=[]; $("#app").hidden=false; $("#tabsNav").hidden=false; }
+function ask(msg,ok="Yes, delete"){
+  return new Promise(res=>{
+    let done=false;
+    sheet("Are you sure?",`<p style="margin-top:12px">${esc(msg)}</p><div class="actions"><button class="btn ghost" id="aNo">Cancel</button><button class="btn danger" id="aYes">${esc(ok)}</button></div>`,(root,close)=>{
+      root.querySelector("[data-close]").onclick=()=>{ close(); if(!done){done=true;res(false);} };
+      $("#aNo",root).onclick=()=>{ close(); done=true; res(false); };
+      $("#aYes",root).onclick=()=>{ close(); done=true; res(true); };
+    });
+  });
+}
+let toastT=null;
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("on"),2200); }
+
+/* ---------- boot ---------- */
+loadLocal();
+$("#brand").innerHTML=`<img src="${LOGO}" alt=""><span class="wm"><b>Drive</b><i>Mate</i></span>`;
+if(NATIVE) syncFromNative(); else if(S.live) startGps();
+(function handleLaunch(){
+  let p=null, e=null;
+  try{
+    const q=new URLSearchParams(location.search); p=q.get("start"); e=q.get("end");
+    if(!p&&!e&&location.hash.length>1){ const h=new URLSearchParams(location.hash.slice(1)); if(location.hash.includes("start")) p=h.get("start")||"1"; if(location.hash.includes("end")) e=h.get("end")||"1"; }
+    if(p||e) history.replaceState(null,"",location.pathname);
+  }catch(err){}
+  if(p && S.vehicles.length && !S.live){ tab="drive"; startTrip(veh(p)?p:activeVeh().id); return; }
+  if(e && S.live){ tab="drive"; render(); endTripSheet(); return; }
+  render();
+})();
+initCloud();
+checkUpdate(false).then(()=>{ if(update&&!screenStack.length) render(); });
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden || inClaude() || !account) return;
+  if(!cloud || hasPending()) initCloud();
+  else if(!screenStack.length) connect(accountStore,"me").then(()=>{ if(!screenStack.length) render(); }).catch(()=>{});
+});
+window.addEventListener("online",()=>{ if(account && !inClaude()) initCloud(); });
+</script>
+</body>
+</html>
