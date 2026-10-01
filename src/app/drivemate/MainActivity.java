@@ -17,6 +17,8 @@ import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -29,6 +31,12 @@ import java.nio.charset.StandardCharsets;
 
 /** Hosts the DriveMate page and gives it the DriveMateNative bridge. */
 public class MainActivity extends Activity {
+    /**
+     * The page is bundled in the APK but shown under the real site address, so it works offline,
+     * talks to the API as the same site, and password managers recognise the sign-in form.
+     */
+    static final String HOST = "drivemate.agency-log.workers.dev";
+    static final String HOME = "https://" + HOST + "/";
     private static final int REQ_LOCATION = 1, REQ_BACKGROUND = 2, REQ_NOTIF = 3, REQ_FILE = 10;
     private static WeakReference<MainActivity> current = new WeakReference<>(null);
 
@@ -55,13 +63,23 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
-        s.setAllowFileAccess(true);
+        s.setAllowFileAccess(false);
         s.setTextZoom(100);
         web.addJavascriptInterface(new Bridge(), "DriveMateNative");
         web.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView v, android.webkit.WebResourceRequest r) {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
-                if ("file".equals(u.getScheme())) return false;
+                String path = u.getPath() == null ? "/" : u.getPath();
+                if (HOST.equals(u.getHost()) && "GET".equals(r.getMethod()) && (path.equals("/") || path.equals("/index.html"))) {
+                    try {
+                        return new WebResourceResponse("text/html", "utf-8", getAssets().open("index.html"));
+                    } catch (java.io.IOException e) { return null; }
+                }
+                return null; // API calls, fonts etc. go to the network as normal
+            }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                Uri u = r.getUrl();
+                if (HOST.equals(u.getHost())) return false;
                 try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (ActivityNotFoundException ignored) {}
                 return true;
             }
@@ -78,7 +96,7 @@ public class MainActivity extends Activity {
 
         pendingEnd = getIntent().getBooleanExtra("end", false);
         if (saved != null) web.restoreState(saved);
-        else web.loadUrl("file:///android_asset/index.html");
+        else web.loadUrl(HOME);
     }
 
     @Override protected void onNewIntent(Intent intent) {

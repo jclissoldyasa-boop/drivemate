@@ -7,6 +7,17 @@ const MAX_DOCS = 600;              // config + 50 years of months
 const DOC_ID = /^(config|m-\d{4}-\d{2})$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Tells Android the DriveMate app and this site belong together, so saved passwords work in both.
+// The fingerprint is the APK signing key's SHA-256 (keytool -list -v -keystore drivemate.keystore).
+const ASSET_LINKS = [{
+  relation: ["delegate_permission/common.handle_all_urls", "delegate_permission/common.get_login_creds"],
+  target: {
+    namespace: "android_app",
+    package_name: "app.drivemate",
+    sha256_cert_fingerprints: ["E6:76:2B:AB:B1:72:2C:7F:94:C4:5C:B4:C1:3E:C1:B0:EC:7C:3F:66:63:31:E5:AA:D1:AF:D8:30:69:C1:87:23"],
+  },
+}];
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -17,6 +28,7 @@ const CORS = {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    if (url.pathname === "/.well-known/assetlinks.json") return json(ASSET_LINKS);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     try {

@@ -443,8 +443,8 @@ function accountScreen(){
   <div class="panel">
     <div class="seg" role="group"><button data-am="create" aria-pressed="${c}">Create account</button><button data-am="signin" aria-pressed="${!c}">Sign in</button></div>
     <form id="aForm" novalidate>
-      <label for="aEmail">Email</label><input id="aEmail" type="email" autocomplete="email" inputmode="email" autocapitalize="off">
-      <label for="aPass">Password</label><input id="aPass" type="password" autocomplete="${c?"new-password":"current-password"}" ${c?'minlength="8"':""}>
+      <label for="aEmail">Email</label><input id="aEmail" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="off">
+      <label for="aPass">Password</label><input id="aPass" name="password" type="password" autocomplete="${c?"new-password":"current-password"}" ${c?'minlength="8"':""}>
       ${c?`<p class="small muted" style="margin-top:6px">At least 8 characters.</p>`:""}
       <div class="err" id="aErr"></div>
       <button class="btn road block" id="aGo" type="submit" style="margin-top:8px">${c?"Create account":"Sign in"}</button>
@@ -471,9 +471,9 @@ function bindAccount(){
 function resetSheet(){
   sheet("Reset password",`
     <p class="muted small" style="margin-top:12px">Enter the recovery code you saved when you created your account.</p>
-    <label for="rEmail">Email</label><input id="rEmail" type="email" autocomplete="email" autocapitalize="off" value="${esc(($("#aEmail")||{}).value||"")}">
+    <label for="rEmail">Email</label><input id="rEmail" name="email" type="email" autocomplete="username" autocapitalize="off" value="${esc(($("#aEmail")||{}).value||"")}">
     <label for="rCode">Recovery code</label><input id="rCode" autocapitalize="characters" autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX">
-    <label for="rPass">New password</label><input id="rPass" type="password" autocomplete="new-password">
+    <label for="rPass">New password</label><input id="rPass" name="new-password" type="password" autocomplete="new-password">
     <div class="err" id="rErr"></div>
     <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn road" id="rGo">Reset password</button></div>`,
   (root)=>{
