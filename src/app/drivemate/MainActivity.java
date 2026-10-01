@@ -37,7 +37,7 @@ public class MainActivity extends Activity {
      */
     static final String HOST = "drivemate.agency-log.workers.dev";
     static final String HOME = "https://" + HOST + "/";
-    private static final int REQ_LOCATION = 1, REQ_BACKGROUND = 2, REQ_NOTIF = 3, REQ_FILE = 10;
+    private static final int REQ_LOCATION = 1, REQ_BACKGROUND = 2, REQ_NOTIF = 3, REQ_BT = 4, REQ_FILE = 10;
     private static WeakReference<MainActivity> current = new WeakReference<>(null);
 
     private WebView web;
@@ -257,6 +257,7 @@ public class MainActivity extends Activity {
                         .put("status", Store.status(c))
                         .put("auto", Store.auto(c))
                         .put("discardedTs", Store.prefs(c).getLong("discardedTs", 0))
+                        .put("vid", Store.prefs(c).getString("tripVid", ""))
                         .toString();
             } catch (Exception e) { return "{}"; }
         }
@@ -269,7 +270,7 @@ public class MainActivity extends Activity {
             boolean battery = ((PowerManager) getSystemService(POWER_SERVICE)).isIgnoringBatteryOptimizations(getPackageName());
             try {
                 return new JSONObject().put("fine", Store.hasFine(c)).put("background", Store.hasBackground(c))
-                        .put("notif", notif).put("battery", battery).toString();
+                        .put("notif", notif).put("battery", battery).put("bluetooth", Store.hasBluetooth(c)).toString();
             } catch (Exception e) { return "{}"; }
         }
 
@@ -288,6 +289,34 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface public void setAuto(boolean on) {
             Store.prefs(MainActivity.this).edit().putBoolean("auto", on).apply();
+            TrackerService.sync(MainActivity.this);
+        }
+
+        /** Paired Bluetooth devices, so the page can link one to a vehicle. */
+        @JavascriptInterface public String btDevices() {
+            org.json.JSONArray out = new org.json.JSONArray();
+            try {
+                android.bluetooth.BluetoothManager bm = getSystemService(android.bluetooth.BluetoothManager.class);
+                if (bm == null || bm.getAdapter() == null || !Store.hasBluetooth(MainActivity.this)) return "[]";
+                for (android.bluetooth.BluetoothDevice d : bm.getAdapter().getBondedDevices()) {
+                    out.put(new JSONObject().put("addr", d.getAddress()).put("name", d.getName() == null ? d.getAddress() : d.getName()));
+                }
+            } catch (Exception ignored) {}
+            return out.toString();
+        }
+
+        @JavascriptInterface public void askBluetooth() {
+            if (Build.VERSION.SDK_INT < 31) return;
+            runOnUiThread(() -> {
+                askedAt = SystemClock.elapsedRealtime();
+                requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, REQ_BT);
+            });
+        }
+
+        @JavascriptInterface public void setBtCars(String json) {
+            try { new JSONObject(json); } catch (Exception e) { return; }
+            if (json.equals(Store.btCars(MainActivity.this))) return;
+            Store.prefs(MainActivity.this).edit().putString("btCars", json).apply();
             TrackerService.sync(MainActivity.this);
         }
 

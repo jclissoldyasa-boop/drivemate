@@ -89,6 +89,11 @@ input[type=checkbox]{width:auto}
 .quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .quick button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 11px;font-size:14px}
 .list{list-style:none;margin:0;padding:0}
+.swipe{position:relative;overflow:hidden}
+.swipe .item{position:relative;background:var(--bg);transition:transform .2s;touch-action:pan-y}
+.swipe-under{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-weight:700;color:var(--muted);background:var(--line)}
+.swipe.armed .swipe-under{color:var(--road-ink);background:var(--biz)}
+.swipe.armed[data-type="private"] .swipe-under{background:var(--priv)}
 .item{display:flex;gap:12px;align-items:flex-start;padding:12px 2px;border-bottom:1px solid var(--line);cursor:pointer;background:none;border-left:0;border-right:0;border-top:0;width:100%;text-align:left}
 .item .km{margin-left:auto;font-family:var(--cond);font-weight:700;font-size:22px;white-space:nowrap}
 .tag{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:1px 7px;margin-right:6px}
@@ -308,6 +313,7 @@ function readings(vid){ // every known odometer point for a vehicle
   S.trips.filter(t=>t.vid===vid).forEach(t=>{ pts.push({ts:t.startTs,odo:+t.startOdo}); if(t.endOdo!=null) pts.push({ts:t.endTs||t.startTs,odo:+t.endOdo}); });
   return pts.sort((a,b)=>a.ts-b.ts);
 }
+function odoAt(vid,ts){ const r=readings(vid).filter(p=>p.ts<=ts); return r.length? Math.max(...r.map(p=>p.odo)) : currentOdo(vid); }
 function currentOdo(vid){ const r=readings(vid); return r.length? Math.max(...r.map(p=>p.odo)) : 0; }
 function lastWeekly(vid){ return S.odo.filter(o=>o.vid===vid).sort((a,b)=>b.ts-a.ts)[0]||null; }
 function periodStats(vid,from,to){
@@ -390,8 +396,13 @@ function syncFromNative(){
   const st=nState();
   if(S.live && st.discardedTs && +st.discardedTs===S.live.startTs){ S.live=null; persist(); return; }
   if(st.tracking && !S.live && S.vehicles.length){
-    const v=activeVeh();
-    S.live={vid:v.id,startTs:+st.startTs||Date.now(),startOdo:currentOdo(v.id),type:"business",purpose:"",gpsKm:0,from:""};
+    const v=veh(st.vid)||activeVeh();
+    S.live={vid:v.id,startTs:+st.startTs||Date.now(),startOdo:currentOdo(v.id),type:"business",purpose:"",gpsKm:0,from:"",btVid:st.vid||""};
+    persist();
+  }else if(S.live && st.tracking && st.vid && veh(st.vid) && S.live.btVid!==st.vid){
+    // A charger trip whose car Bluetooth connected just after: move it to that car (once, so a manual change sticks).
+    S.live.btVid=st.vid;
+    if(S.live.vid!==st.vid){ S.live.vid=st.vid; S.live.startOdo=currentOdo(st.vid); }
     persist();
   }else if(S.live && !st.tracking){
     try{ NATIVE.startTrip(String(S.live.startTs)); }catch(e){}
@@ -451,6 +462,7 @@ function renderTabs(){
   $("#tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>go(b.dataset.tab));
 }
 function render(){
+  pushBtCars();
   renderTabs();
   clearInterval(tick);
   const app=$("#app");
@@ -767,7 +779,7 @@ function welcome(){
   <div class="err" id="verr"></div>
   <button class="btn road block" id="vsave" style="margin-top:14px">Add vehicle</button></div>`;
 }
-function bindWelcome(){ $("#vsave").onclick=()=>saveVehicle(null,true); }
+function bindWelcome(){ $("#vsave").onclick=()=>saveVehicle(null,true); bindVehBt(); }
 
 /* ---------- drive ---------- */
 function odoPlate(n){
@@ -896,6 +908,26 @@ function endTripSheet(){
 }
 
 /* ---------- log (trips / odometer / expenses) ---------- */
+function setTripType(t,type){
+  t.type=type; persist({months:[monthKey(t.startTs)]}); render();
+  toast(`Trip changed to ${type==="business"?"Business":"Private"}`);
+}
+function swipeToggle(el){
+  const li=el.closest(".swipe"); let x0=null, y0=0, dx=0, horiz=null;
+  el.addEventListener("touchstart",e=>{ const p=e.touches[0]; x0=p.clientX; y0=p.clientY; dx=0; horiz=null; el.style.transition="none"; },{passive:true});
+  el.addEventListener("touchmove",e=>{
+    if(x0==null) return; const p=e.touches[0]; dx=p.clientX-x0;
+    if(horiz==null && (Math.abs(dx)>8||Math.abs(p.clientY-y0)>8)) horiz=Math.abs(dx)>Math.abs(p.clientY-y0);
+    if(!horiz) return; e.preventDefault();
+    el.style.transform=`translateX(${dx}px)`; li.classList.toggle("armed",Math.abs(dx)>90);
+  },{passive:false});
+  const end=()=>{
+    if(x0==null) return; x0=null; el.style.transition=""; el.style.transform=""; li.classList.remove("armed");
+    if(!horiz) return; el._swiped=true; setTimeout(()=>el._swiped=false,400);
+    if(Math.abs(dx)>90){ const t=S.trips.find(x=>x.id===el.dataset.trip); if(t) setTripType(t,li.dataset.type); }
+  };
+  el.addEventListener("touchend",end); el.addEventListener("touchcancel",end);
+}
 function trips(){
   const v=activeVeh();
   let inner="";
@@ -903,8 +935,8 @@ function trips(){
     const list=S.trips.filter(t=>t.vid===v.id).sort((a,b)=>b.startTs-a.startTs);
     if(!list.length) inner=`<div class="empty">No trips yet. Start one from the Drive tab, or add a past trip.</div>`;
     else{ let last=""; inner=`<ul class="list">`+list.map(t=>{ const d=dFmt(t.startTs); const h=d!==last?`<li class="day">${d}</li>`:""; last=d;
-      return h+`<li><button class="item" data-trip="${t.id}"><div><span class="tag ${t.type==="business"?"b":"p"}">${t.type==="business"?"Business":"Private"}</span><span class="small muted">${tFmt(t.startTs)}${t.endTs?`–${tFmt(t.endTs)}`:""}</span><div>${esc(t.purpose||"No reason entered")}</div><div class="small muted">${fmtKm(t.startOdo)} → ${fmtKm(t.endOdo)}</div></div><span class="km">${fmtKm(tripKm(t))} km</span></button></li>`; }).join("")+`</ul>`; }
-    inner=`<button class="btn block" id="addTrip" style="margin-bottom:6px">Add a trip</button>`+inner;
+      return h+`<li class="swipe" data-type="${t.type==="business"?"private":"business"}"><span class="swipe-under" aria-hidden="true">${(l=>`<span>${l}</span><span>${l}</span>`)(t.type==="business"?"Private":"Business")}</span><button class="item" data-trip="${t.id}"><div><span class="tag ${t.type==="business"?"b":"p"}">${t.type==="business"?"Business":"Private"}</span><span class="small muted">${tFmt(t.startTs)}${t.endTs?`–${tFmt(t.endTs)}`:""}</span><div>${esc(t.purpose||"No reason entered")}</div><div class="small muted">${fmtKm(t.startOdo)} → ${fmtKm(t.endOdo)}</div></div><span class="km">${fmtKm(tripKm(t))} km</span></button></li>`; }).join("")+`</ul>`; }
+    inner=`<button class="btn block" id="addTrip" style="margin-bottom:6px">Add a trip</button>`+(list.length?`<p class="small muted" style="margin:8px 0 0">Swipe a trip sideways to switch it between Business and Private.</p>`:"")+inner;
   }else if(tripsView==="odo"){
     const list=S.odo.filter(o=>o.vid===v.id).sort((a,b)=>b.ts-a.ts);
     inner=`<button class="btn block" id="addOdo" style="margin-bottom:6px">Record odometer</button>`+(list.length?`<ul class="list">${list.map(o=>`<li><button class="item" data-odo="${o.id}"><div><div>${dFmt(o.ts)}</div><div class="small muted">${esc(o.note||"")}</div></div><span class="km">${fmtKm(o.value)}</span></button></li>`).join("")}</ul>`:`<div class="empty">Record the odometer once a week so your total kilometres are accurate.</div>`);
@@ -924,7 +956,7 @@ function bindTrips(){
   const o=$("#addOdo"); if(o) o.onclick=()=>odoSheet(null);
   const e=$("#addExp"); if(e) e.onclick=()=>expSheet(null,"Maintenance & servicing");
   const af=$("#addFuel"); if(af) af.onclick=()=>expSheet(null,"Fuel");
-  document.querySelectorAll("[data-trip]").forEach(b=>b.onclick=()=>tripSheet(S.trips.find(t=>t.id===b.dataset.trip)));
+  document.querySelectorAll("[data-trip]").forEach(b=>{ b.onclick=()=>{ if(b._swiped){ b._swiped=false; return; } tripSheet(S.trips.find(t=>t.id===b.dataset.trip)); }; swipeToggle(b); });
   document.querySelectorAll("[data-odo]").forEach(b=>b.onclick=()=>odoSheet(S.odo.find(t=>t.id===b.dataset.odo)));
   document.querySelectorAll("[data-exp]").forEach(b=>b.onclick=()=>expSheet(S.expenses.find(t=>t.id===b.dataset.exp)));
 }
@@ -933,6 +965,7 @@ function tripSheet(t){
   const base=t||{vid:v.id,startTs:Date.now()-3600e3,endTs:Date.now(),startOdo:currentOdo(v.id),endOdo:"",type:"business",purpose:""};
   sheet(isNew?"Add a trip":"Edit trip",`
     <label for="tv">Vehicle</label><select id="tv">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===base.vid?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+    <p class="small" id="tvnote" style="color:var(--warn);margin-top:6px"></p>
     <div class="row"><div><label for="ts">Started</label><input id="ts" type="datetime-local" value="${isoLocal(base.startTs)}"></div><div><label for="te">Finished</label><input id="te" type="datetime-local" value="${isoLocal(base.endTs||base.startTs)}"></div></div>
     <div class="row"><div><label for="tso">Start odometer</label><input id="tso" class="odo" inputmode="numeric" autocomplete="off" value="${base.startOdo}"></div><div><label for="tkm">Km travelled</label><input id="tkm" inputmode="decimal" value="${base.endOdo!==""?tripKm(base):""}"></div></div>
     ${isNew?`<p class="small" id="tgap" style="color:var(--warn);margin-top:6px"></p>`:""}
@@ -950,6 +983,13 @@ function tripSheet(t){
     const showGap=()=>{ const el=$("#tgap",root); if(el) el.textContent=gapNote(gapAt()); };
     tso.oninput=()=>{ if(tkm.value!=="") teo.value=(+tso.value)+Math.round(+tkm.value); showGap(); };
     $("#ts",root).addEventListener("change",showGap); $("#tv",root).addEventListener("change",showGap); showGap();
+    // Another car has its own odometer: keep the km, and start from that car's reading at the time.
+    $("#tv",root).addEventListener("change",()=>{
+      const vid=$("#tv",root).value, km=Math.max(0,(+teo.value)-(+tso.value)), st=new Date($("#ts",root).value).getTime()||base.startTs;
+      if(!isNew && vid===base.vid){ tso.value=base.startOdo; teo.value=base.endOdo; $("#tvnote",root).textContent=""; return; }
+      const so=odoAt(vid,st); tso.value=so; if(teo.value!==""||!isNew) teo.value=so+km; tkm.value=km||tkm.value;
+      $("#tvnote",root).textContent=`Odometer changed to ${veh(vid).name}'s reading at that time. Check it before saving.`;
+    });
     root.querySelectorAll("[data-tt]").forEach(b=>b.onclick=()=>{ type=b.dataset.tt; root.querySelectorAll("[data-tt]").forEach(x=>x.setAttribute("aria-pressed",x===b)); });
     $("#tsave",root).onclick=()=>{
       const so=+$("#tso",root).value, eo=+$("#teo",root).value, p=$("#tp",root).value.trim();
@@ -1173,7 +1213,37 @@ function vehicleForm(v){
   <div class="row"><div><label for="vr">Registration</label><input id="vr" value="${esc(v.rego||"")}" placeholder="ABC123"></div><div><label for="vm">Make / model</label><input id="vm" value="${esc(v.model||"")}" placeholder="Toyota HiLux"></div></div>
   <div class="row"><div><label for="vo">Odometer at setup</label><input id="vo" class="odo" inputmode="numeric" autocomplete="off" value="${v.startOdo??""}"></div><div><label for="vd">Setup date</label><input id="vd" type="date" value="${isoDate(v.startTs||Date.now())}"></div></div>
   <label for="vl">12-week logbook start (optional)</label><input id="vl" type="date" value="${v.logStart?isoDate(v.logStart):""}">
-  <p class="small muted" style="margin-top:6px">Pick a start date for your 12 continuous weeks. Leave blank if you only use cents per km.</p>`;
+  <p class="small muted" style="margin-top:6px">Pick a start date for your 12 continuous weeks. Leave blank if you only use cents per km.</p>${NATIVE?`
+  <label>Car Bluetooth <span class="muted">(optional)</span></label>
+  <div class="kv" id="vbt" data-addr="${esc(v.bt?.addr||"")}" data-name="${esc(v.bt?.name||"")}"><span id="vbtName">${v.bt?esc(v.bt.name):`<span class="muted">Not linked</span>`}</span><span><button class="linkbtn" id="vbtPick" style="padding:6px 0">${v.bt?"Change":"Choose"}</button>${v.bt?` <button class="linkbtn" id="vbtClear" style="padding:6px 0;margin-left:12px">Remove</button>`:""}</span></div>
+  <p class="small muted" style="margin-top:6px">Pick this car's stereo or hands-free. When the phone connects to it, DriveMate starts a trip in this vehicle, and asks if you've arrived when it disconnects.</p>`:""}`;
+}
+function setVehBt(bt){
+  const box=$("#vbt"); if(!box) return;
+  box.dataset.addr=bt?bt.addr:""; box.dataset.name=bt?bt.name:"";
+  $("#vbtName").innerHTML=bt?esc(bt.name):`<span class="muted">Not linked</span>`;
+  $("#vbtPick").textContent=bt?"Change":"Choose";
+  const c=$("#vbtClear"); if(c) c.hidden=!bt;
+}
+function bindVehBt(){
+  const pick=$("#vbtPick"); if(!pick) return;
+  const c=$("#vbtClear"); if(c) c.onclick=()=>setVehBt(null);
+  pick.onclick=()=>{
+    if(!nPerms().bluetooth){ try{ NATIVE.askBluetooth(); }catch(e){} toast("Allow Nearby devices, then tap Choose again"); return; }
+    let list=[]; try{ list=JSON.parse(NATIVE.btDevices()); }catch(e){}
+    sheet("Car Bluetooth", list.length
+      ? `<p class="small muted">Paired devices on this phone. Pick the one in this car.</p><ul class="list">${list.map((d,i)=>`<li><button class="item" data-bt="${i}"><div>${esc(d.name)}<div class="small muted">${esc(d.addr)}</div></div></button></li>`).join("")}</ul>`
+      : `<p class="small muted" style="margin-top:12px">No paired devices. Pair the phone with the car in Android's Bluetooth settings first.</p>`,
+    (root,close)=>root.querySelectorAll("[data-bt]").forEach(b=>b.onclick=()=>{ setVehBt(list[+b.dataset.bt]); close(); }));
+  };
+}
+// Tell the app which Bluetooth device belongs to which vehicle.
+let btCarsSent=null;
+function pushBtCars(){
+  if(!NATIVE) return;
+  const m={}; S.vehicles.forEach(v=>{ if(v.bt&&v.bt.addr) m[v.bt.addr]=v.id; });
+  const j=JSON.stringify(m); if(j===btCarsSent) return;
+  try{ NATIVE.setBtCars(j); btCarsSent=j; }catch(e){}
 }
 function saveVehicle(v,first){
   const name=$("#vn").value.trim(), odo=+$("#vo").value;
@@ -1182,6 +1252,7 @@ function saveVehicle(v,first){
   if($("#vo").value===""||odo<0){ err.textContent="Enter the odometer reading."; return false; }
   const d=$("#vd").value, l=$("#vl").value;
   const rec={name,rego:$("#vr").value.trim().toUpperCase(),model:$("#vm").value.trim(),startOdo:odo,startTs:new Date(d+"T00:00").getTime(),logStart:l?new Date(l+"T00:00").getTime():null};
+  const btBox=$("#vbt"); if(btBox) rec.bt=btBox.dataset.addr?{addr:btBox.dataset.addr,name:btBox.dataset.name}:null;
   if(v) Object.assign(v,rec); else { const n={id:uid(),...rec}; S.vehicles.push(n); S.settings.active=n.id; }
   persist(); if(first){ tab="drive"; } render(); toast("Vehicle saved"); return true;
 }
@@ -1205,9 +1276,11 @@ function autoPanel(){
   <div class="panel">
     <label class="check" style="margin-top:0"><input type="checkbox" id="autoOn" ${st.auto?"checked":""}> Start a trip when the phone goes on the wireless charger</label>
     <p class="small muted" style="margin-top:8px">Lift the phone off the charger and DriveMate asks if you've arrived. Tap End trip to save it with the GPS kilometres filled in. If the phone doesn't move 300 m within 10 minutes, the trip is cancelled, so a charger at home won't log trips.</p>
+    <p class="small muted" style="margin-top:8px">To start trips from a car's Bluetooth instead, edit the vehicle above and choose its Bluetooth device.</p>
     <ul class="list" style="margin-top:6px">
       ${row(p.fine,"Location access","pLoc","Allow")}
       ${row(p.background,"Location set to Allow all the time","pBg","Fix")}
+      ${S.vehicles.some(v=>v.bt)?row(p.bluetooth,"Nearby devices allowed (car Bluetooth)","pBt","Allow"):""}
       ${row(p.notif,"Notifications on","pNot","Allow")}
       ${row(p.battery,"Battery saver won't close DriveMate","pBat","Fix")}
     </ul>
@@ -1250,7 +1323,7 @@ function bindSetup(){
   const ts=$("#testStart"); if(ts) ts.onclick=()=>{ tab="drive"; startTrip(activeVeh()?.id); };
   if(NATIVE){
     const ao=$("#autoOn"); if(ao) ao.onchange=e=>{ try{ NATIVE.setAuto(e.target.checked); if(e.target.checked&&!nPerms().fine) NATIVE.askLocation(); }catch(err){} toast(e.target.checked?"Automatic trips on":"Automatic trips off"); };
-    [["pLoc","askLocation"],["pBg","askLocation"],["pNot","askNotifications"],["pBat","askBattery"]].forEach(([id,fn])=>{ const b=$("#"+id); if(b) b.onclick=()=>{ try{ NATIVE[fn](); }catch(err){} }; });
+    [["pLoc","askLocation"],["pBg","askLocation"],["pBt","askBluetooth"],["pNot","askNotifications"],["pBat","askBattery"]].forEach(([id,fn])=>{ const b=$("#"+id); if(b) b.onclick=()=>{ try{ NATIVE[fn](); }catch(err){} }; });
   }
   $("#saveData").onclick=()=>{ const d=JSON.parse(JSON.stringify(S)); d.live=null;
     exportFile(JSON.stringify({app:"DriveMate",version:1,saved:new Date().toISOString(),data:d}),`drivemate-data-${isoDate(Date.now())}.json`,"application/json"); };
@@ -1281,6 +1354,7 @@ function vehSheet(v){
   sheet(v?"Edit vehicle":"Add vehicle",`${vehicleForm(v||{})}<div class="err" id="verr"></div>
   <div class="actions">${v?`<button class="btn danger" id="vdel">Delete</button>`:`<button class="btn ghost" data-close>Cancel</button>`}<button class="btn" id="vsave">Save vehicle</button></div>`,
   (root,close)=>{
+    bindVehBt();
     $("#vsave",root).onclick=()=>{ if(saveVehicle(v,false)) close(); };
     const d=$("#vdel",root); if(d) d.onclick=async()=>{ if(!await ask(`Delete ${v.name} and all its trips, readings and expenses?`)) return;
       const months=new Set(S.trips.filter(t=>t.vid===v.id).map(t=>monthKey(t.startTs)));

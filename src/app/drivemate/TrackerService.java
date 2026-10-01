@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -21,11 +22,13 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
 
+import org.json.JSONObject;
+
 import java.util.Locale;
 
 /**
  * Foreground service that counts GPS kilometres during a trip and, when automatic trips are on,
- * starts a trip when the phone goes on a wireless charger.
+ * starts a trip when the phone goes on a wireless charger or connects to a car's Bluetooth.
  */
 public class TrackerService extends Service implements LocationListener {
     static final String ACTION_SYNC = "sync";            // bring the service in line with Store
@@ -36,7 +39,7 @@ public class TrackerService extends Service implements LocationListener {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private LocationManager lm;
-    private boolean gpsOn, chargerWatch;
+    private boolean gpsOn, chargerWatch, btWatch;
     private Location anchor;
     private long lastNoteAt;
     private PowerManager.WakeLock wake;
@@ -46,7 +49,7 @@ public class TrackerService extends Service implements LocationListener {
 
     static void send(Context c, String action) {
         // A location service can't go foreground without permission; it starts once that's granted.
-        boolean needed = (Store.tracking(c) || Store.auto(c)) && Store.hasFine(c);
+        boolean needed = (Store.tracking(c) || Store.watching(c)) && Store.hasFine(c);
         if (!needed && !ACTION_SYNC.equals(action)) return;
         Intent i = new Intent(c, TrackerService.class).setAction(action);
         try {
@@ -76,10 +79,11 @@ public class TrackerService extends Service implements LocationListener {
 
     /** Make GPS, the charger watch and the notification match the stored state. */
     private void apply() {
-        boolean tracking = Store.tracking(this), auto = Store.auto(this);
-        if (!tracking && !auto) {
+        boolean tracking = Store.tracking(this), auto = Store.auto(this), bt = Store.hasBtCars(this);
+        if (!tracking && !auto && !bt) {
             stopGps();
             watchCharger(false);
+            watchBluetooth(false);
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return;
@@ -92,6 +96,7 @@ public class TrackerService extends Service implements LocationListener {
             return;
         }
         watchCharger(auto);
+        watchBluetooth(bt);
         if (tracking) startGps(); else stopGps();
     }
 
@@ -204,6 +209,57 @@ public class TrackerService extends Service implements LocationListener {
         getSystemService(NotificationManager.class).notify(NOTE_ARRIVED, n);
     }
 
+    // ---------- car Bluetooth ----------
+
+    private final BroadcastReceiver bluetooth = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            BluetoothDevice d = i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+            if (d == null) return;
+            String addr = d.getAddress();
+            if (BluetoothDevice.ACTION_ACL_CONNECTED.equals(i.getAction())) onCarConnected(addr);
+            else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(i.getAction())) onCarDisconnected(addr);
+        }
+    };
+
+    private void watchBluetooth(boolean on) {
+        if (on == btWatch) return;
+        btWatch = on;
+        if (on) {
+            IntentFilter f = new IntentFilter(BluetoothDevice.ACTION_ACL_CONNECTED);
+            f.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+            registerReceiver(bluetooth, f);
+        } else {
+            try { unregisterReceiver(bluetooth); } catch (Exception ignored) {}
+        }
+    }
+
+    private String carFor(String addr) {
+        try { return new JSONObject(Store.btCars(this)).optString(addr, null); } catch (Exception e) { return null; }
+    }
+
+    private void onCarConnected(String addr) {
+        String vid = carFor(addr);
+        if (vid == null) return;
+        getSystemService(NotificationManager.class).cancel(NOTE_ARRIVED);
+        if (Store.tracking(this)) {
+            // A charger trip that started moments ago: it's in this car.
+            if (Store.autoTrip(this) && Store.prefs(this).getString("tripVid", null) == null
+                    && System.currentTimeMillis() - Store.startTs(this) < 5 * 60 * 1000) {
+                Store.prefs(this).edit().putString("tripVid", vid).putString("btAddr", addr).apply();
+                MainActivity.ping("vehicle");
+            }
+            return;
+        }
+        Store.startTrip(this, System.currentTimeMillis(), true);
+        Store.prefs(this).edit().putString("tripVid", vid).putString("btAddr", addr).apply();
+        apply();
+        MainActivity.ping("start");
+    }
+
+    private void onCarDisconnected(String addr) {
+        if (addr.equals(Store.prefs(this).getString("btAddr", null))) onLifted();
+    }
+
     // ---------- notifications ----------
 
     private PendingIntent open(boolean end) {
@@ -225,7 +281,9 @@ public class TrackerService extends Service implements LocationListener {
              .addAction(new Notification.Action.Builder(null, "End trip", open(true)).build());
         } else {
             b.setContentTitle("Automatic trips on")
-             .setContentText("A trip starts when the phone goes on the wireless charger");
+             .setContentText(Store.auto(this) && Store.hasBtCars(this) ? "A trip starts on the wireless charger or when your car's Bluetooth connects"
+                     : Store.auto(this) ? "A trip starts when the phone goes on the wireless charger"
+                     : "A trip starts when your car's Bluetooth connects");
         }
         return b.build();
     }
@@ -233,6 +291,7 @@ public class TrackerService extends Service implements LocationListener {
     @Override public void onDestroy() {
         stopGps();
         watchCharger(false);
+        watchBluetooth(false);
         super.onDestroy();
     }
 

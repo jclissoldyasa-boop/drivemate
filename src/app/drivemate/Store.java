@@ -20,10 +20,15 @@ final class Store {
     static double km(Context c) { return prefs(c).getFloat("km", 0f); }
     static boolean auto(Context c) { return prefs(c).getBoolean("auto", false); }
     static boolean autoTrip(Context c) { return prefs(c).getBoolean("autoTrip", false); }
+    /** Car Bluetooth devices that start a trip, as JSON {"AA:BB:…": "vehicleId"}. */
+    static String btCars(Context c) { return prefs(c).getString("btCars", "{}"); }
+    static boolean hasBtCars(Context c) { return !"{}".equals(btCars(c)) && hasBluetooth(c); }
+    /** Anything that needs the background service watching for a trip to start. */
+    static boolean watching(Context c) { return auto(c) || hasBtCars(c); }
 
     static void startTrip(Context c, long ts, boolean auto) {
         prefs(c).edit().putBoolean("tracking", true).putLong("startTs", ts).putFloat("km", 0f)
-                .putBoolean("autoTrip", auto).putLong("fixAt", 0).putFloat("acc", 999f).apply();
+                .putBoolean("autoTrip", auto).remove("tripVid").remove("btAddr").putLong("fixAt", 0).putFloat("acc", 999f).apply();
     }
 
     static void endTrip(Context c, boolean discarded) {
@@ -38,6 +43,11 @@ final class Store {
 
     static boolean hasBackground(Context c) {
         return c.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    static boolean hasBluetooth(Context c) {
+        return android.os.Build.VERSION.SDK_INT < 31
+                || c.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
     }
 
     static String status(Context c) {
