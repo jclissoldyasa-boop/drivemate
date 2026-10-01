@@ -67,7 +67,8 @@ button{cursor:pointer}
 .banner{background:var(--warn-soft);border:1.5px solid var(--warn);border-radius:12px;padding:12px 14px;margin-bottom:12px}
 .banner strong{color:var(--warn)}
 .row{display:flex;gap:10px;align-items:center}
-.row > *{flex:1}
+.row > *{flex:1;min-width:0}
+input[type=date],input[type=datetime-local]{min-width:0;font-size:15px;padding-left:10px;padding-right:6px}
 label{display:block;font-size:14px;font-weight:600;margin:12px 0 4px}
 input,select,textarea{width:100%;min-height:48px;font-size:16px;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface)}
 input[type=checkbox]{width:auto}
@@ -685,7 +686,7 @@ function drive(){
   ${updateBanner()}
   ${vehicleChips(v.id)}
   ${due&&!L?`<div class="banner"><strong>Weekly odometer due.</strong> ${lw?`Last reading ${fmtKm(lw.value)} km on ${dFmt(lw.ts)}.`:"No weekly reading yet."}
-    <div class="row" style="margin-top:8px"><input id="wkOdo" inputmode="numeric" placeholder="Odometer now" aria-label="Odometer reading now"><button class="btn" id="wkSave" style="flex:0 0 auto">Save</button></div></div>`:""}
+    <div class="row" style="margin-top:8px"><input id="wkOdo" class="odo" inputmode="numeric" autocomplete="off" placeholder="Odometer now" aria-label="Odometer reading now"><button class="btn" id="wkSave" style="flex:0 0 auto">Save</button></div></div>`:""}
   <div class="plate-wrap">${odoPlate(L?L.startOdo:currentOdo(v.id))}<div class="plate-sub">${esc(v.name)}${v.rego?` · ${esc(v.rego)}`:""}</div></div>
   ${body}
   <h2>${fyLabel(fy)} so far</h2>
@@ -726,8 +727,8 @@ function endTripSheet(){
     <p class="muted small">Enter the kilometres you travelled, or read the odometer off the dash. The app works out the other.</p>
     <div class="seg" role="group" style="margin-top:10px"><button data-em="km" aria-pressed="true">Km travelled</button><button data-em="odo" aria-pressed="false">End odometer</button></div>
     <div id="emKm"><label for="ekm">Kilometres travelled</label><input id="ekm" inputmode="decimal" value="${gps>0?gps:""}" placeholder="e.g. 18"></div>
-    <div id="emOdo" class="hidden"><label for="eeo">End odometer</label><input id="eeo" inputmode="numeric" value="${gps>0?L.startOdo+gps:""}" placeholder="Reading now"></div>
-    <label for="eso">Start odometer</label><input id="eso" inputmode="numeric" value="${L.startOdo}">
+    <div id="emOdo" class="hidden"><label for="eeo">End odometer</label><input id="eeo" class="odo" inputmode="numeric" autocomplete="off" value="${gps>0?L.startOdo+gps:""}" placeholder="Reading now"></div>
+    <label for="eso">Start odometer</label><input id="eso" class="odo" inputmode="numeric" autocomplete="off" value="${L.startOdo}">
     <p class="small muted" id="ecalc" style="margin-top:6px"></p>
     <label for="ep">Reason for the trip <span class="muted">(optional)</span></label><input id="ep" value="${esc(L.purpose)}" placeholder="Optional">
     <div class="err" id="eerr"></div>
@@ -790,8 +791,8 @@ function tripSheet(t){
   sheet(isNew?"Add a trip":"Edit trip",`
     <label for="tv">Vehicle</label><select id="tv">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===base.vid?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
     <div class="row"><div><label for="ts">Started</label><input id="ts" type="datetime-local" value="${isoLocal(base.startTs)}"></div><div><label for="te">Finished</label><input id="te" type="datetime-local" value="${isoLocal(base.endTs||base.startTs)}"></div></div>
-    <div class="row"><div><label for="tso">Start odometer</label><input id="tso" inputmode="numeric" value="${base.startOdo}"></div><div><label for="tkm">Km travelled</label><input id="tkm" inputmode="decimal" value="${base.endOdo!==""?tripKm(base):""}"></div></div>
-    <label for="teo">End odometer</label><input id="teo" inputmode="numeric" value="${base.endOdo}">
+    <div class="row"><div><label for="tso">Start odometer</label><input id="tso" class="odo" inputmode="numeric" autocomplete="off" value="${base.startOdo}"></div><div><label for="tkm">Km travelled</label><input id="tkm" inputmode="decimal" value="${base.endOdo!==""?tripKm(base):""}"></div></div>
+    <label for="teo">End odometer</label><input id="teo" class="odo" inputmode="numeric" autocomplete="off" value="${base.endOdo}">
     <label>Trip type</label><div class="seg" role="group"><button class="biz" data-tt="business" aria-pressed="${base.type==="business"}">Business</button><button data-tt="private" aria-pressed="${base.type!=="business"}">Private</button></div>
     <label for="tp">Reason for the trip <span class="muted">(optional)</span></label><input id="tp" value="${esc(base.purpose)}">
     <div class="err" id="terr"></div>
@@ -820,7 +821,7 @@ function odoSheet(o){
   const v=activeVeh(); const isNew=!o; const base=o||{vid:v.id,ts:Date.now(),value:"",note:"Weekly reading"};
   sheet(isNew?"Record odometer":"Edit reading",`
     <label for="ov">Vehicle</label><select id="ov">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===base.vid?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
-    <div class="row"><div><label for="od">Date</label><input id="od" type="date" value="${isoDate(base.ts)}"></div><div><label for="oval">Odometer (km)</label><input id="oval" inputmode="numeric" value="${base.value}"></div></div>
+    <div class="row"><div><label for="od">Date</label><input id="od" type="date" value="${isoDate(base.ts)}"></div><div><label for="oval">Odometer (km)</label><input id="oval" class="odo" inputmode="numeric" autocomplete="off" value="${base.value}"></div></div>
     <label for="on">Note</label><input id="on" value="${esc(base.note)}">
     <div class="err" id="oerr"></div>
     <div class="actions">${isNew?`<button class="btn ghost" data-close>Cancel</button>`:`<button class="btn danger" id="odel">Delete</button>`}<button class="btn" id="osave">Save reading</button></div>`,
@@ -845,7 +846,7 @@ function expSheet(e,presetCat){
     <div class="receipt ${base.receipt||""?"":"hidden"}" id="xprev"><img id="ximg" alt="Receipt photo" src="${base.receipt?"/_blob/"+base.receipt:""}"><span class="scan" id="xscan">${base.receipt?"Receipt saved":""}</span></div>
     <label for="xc">Category</label><select id="xc">${EXP_CATS.concat(EXP_CATS.includes(base.cat)?[]:[base.cat]).map(c=>`<option ${c===base.cat?"selected":""}>${esc(c)}</option>`).join("")}</select>
     <div class="row"><div><label for="xd">Date</label><input id="xd" type="date" value="${isoDate(base.ts)}"></div><div><label for="xa">Amount ($)</label><input id="xa" inputmode="decimal" value="${base.amount}"></div></div>
-    <div id="xfuel" class="${base.cat==="Fuel"?"":"hidden"}"><div class="row"><div><label for="xl">Litres</label><input id="xl" inputmode="decimal" value="${base.litres||""}"></div>${isNew?`<div><label for="xo">Odometer now</label><input id="xo" inputmode="numeric" placeholder="Optional"></div>`:"<div></div>"}</div></div>
+    <div id="xfuel" class="${base.cat==="Fuel"?"":"hidden"}"><div class="row"><div><label for="xl">Litres</label><input id="xl" inputmode="decimal" value="${base.litres||""}"></div>${isNew?`<div><label for="xo">Odometer now</label><input id="xo" class="odo" inputmode="numeric" autocomplete="off" placeholder="Optional"></div>`:"<div></div>"}</div></div>
     <label for="xn">Supplier / note</label><input id="xn" value="${esc(base.note)}" placeholder="e.g. Ampol Melton, Midas service">
     <label for="xv">Vehicle</label><select id="xv">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===base.vid?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
     <div class="err" id="xerr"></div>
@@ -1005,7 +1006,7 @@ async function exportFile(text,filename,mime){
 function vehicleForm(v){
   return `<label for="vn">Vehicle name</label><input id="vn" value="${esc(v.name||"")}" placeholder="e.g. Ute">
   <div class="row"><div><label for="vr">Registration</label><input id="vr" value="${esc(v.rego||"")}" placeholder="ABC123"></div><div><label for="vm">Make / model</label><input id="vm" value="${esc(v.model||"")}" placeholder="Toyota HiLux"></div></div>
-  <div class="row"><div><label for="vo">Odometer at setup</label><input id="vo" inputmode="numeric" value="${v.startOdo??""}"></div><div><label for="vd">Setup date</label><input id="vd" type="date" value="${isoDate(v.startTs||Date.now())}"></div></div>
+  <div class="row"><div><label for="vo">Odometer at setup</label><input id="vo" class="odo" inputmode="numeric" autocomplete="off" value="${v.startOdo??""}"></div><div><label for="vd">Setup date</label><input id="vd" type="date" value="${isoDate(v.startTs||Date.now())}"></div></div>
   <label for="vl">12-week logbook start (optional)</label><input id="vl" type="date" value="${v.logStart?isoDate(v.logStart):""}">
   <p class="small muted" style="margin-top:6px">Pick a start date for your 12 continuous weeks. Leave blank if you only use cents per km.</p>`;
 }
@@ -1155,6 +1156,26 @@ function ask(msg,ok="Yes, delete"){
 }
 let toastT=null;
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("on"),2200); }
+
+/* ---------- odometer boxes: show 100,000 while the code reads 100000 ---------- */
+const INPUT_VALUE=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value");
+const groupDigits=s=>s.replace(/\B(?=(\d{3})+(?!\d))/g,",");
+function enhanceOdo(el){
+  if(el._odo) return; el._odo=true;
+  Object.defineProperty(el,"value",{configurable:true,
+    get(){ return INPUT_VALUE.get.call(this).replace(/\D/g,""); },
+    set(v){ INPUT_VALUE.set.call(this,groupDigits(String(v??"").replace(/\D/g,""))); }});
+  el.value=INPUT_VALUE.get.call(el);
+  el.addEventListener("input",()=>{
+    const raw=INPUT_VALUE.get.call(el), pos=el.selectionStart??raw.length;
+    const before=raw.slice(0,pos).replace(/\D/g,"").length, out=groupDigits(raw.replace(/\D/g,""));
+    if(out===raw) return;
+    INPUT_VALUE.set.call(el,out);
+    let i=0,d=0; while(i<out.length&&d<before){ if(/\d/.test(out[i])) d++; i++; }
+    try{ el.setSelectionRange(i,i); }catch(e){}
+  },true);
+}
+new MutationObserver(()=>document.querySelectorAll("input.odo").forEach(enhanceOdo)).observe(document.body,{childList:true,subtree:true});
 
 /* ---------- boot ---------- */
 loadLocal();
