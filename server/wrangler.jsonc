@@ -9,6 +9,8 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
+  // Bug reports become issues here once the GITHUB_TOKEN secret is set (wrangler secret put GITHUB_TOKEN).
+  "vars": { "GITHUB_REPO": "jclissoldyasa-boop/drivemate" },
   "d1_databases": [
     {
       "binding": "DB",
