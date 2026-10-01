@@ -104,12 +104,12 @@ async function report(req, env) {
   ).bind(Date.now(), message, contact || null, accountEmail, diag).first("id"));
   const issue = await openIssue(env, id, message, body.diag || {});
   if (issue) await env.DB.prepare("UPDATE reports SET issue_url = ? WHERE id = ?").bind(issue, id).run();
-  return json({ ok: true, id, issue });
+  return json({ ok: true, id, issue: issue && issue.startsWith("https://") ? issue : null });
 }
 
 /** Posts the report as a GitHub issue when GITHUB_TOKEN and GITHUB_REPO are set. Contact details are never included. */
 async function openIssue(env, id, message, diag) {
-  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) return null;
+  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) return "not sent: GITHUB_TOKEN or GITHUB_REPO not set";
   const firstLine = message.split("\n")[0].slice(0, 70);
   const lines = Object.entries(diag).map(([k, v]) => `| ${k} | ${String(typeof v === "object" ? JSON.stringify(v) : v).replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 500)} |`);
   const body = `${message}\n\n<details><summary>Diagnostics</summary>\n\n| | |\n|---|---|\n${lines.join("\n")}\n\n</details>\n\n_Sent from the in-app bug reporter (report #${id})._`;
@@ -119,9 +119,13 @@ async function openIssue(env, id, message, diag) {
       headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "drivemate-worker", "Content-Type": "application/json" },
       body: JSON.stringify({ title: `Bug report: ${firstLine}`, body, labels: ["bug", "in-app report"] }),
     });
-    if (!r.ok) { console.error("GitHub issue failed", r.status, await r.text()); return null; }
+    if (!r.ok) {
+      const why = `not sent: GitHub ${r.status} ${(await r.text()).slice(0, 200)}`;
+      console.error(why);
+      return why;
+    }
     return (await r.json()).html_url;
-  } catch (e) { console.error(e); return null; }
+  } catch (e) { console.error(e); return `not sent: ${e.message}`; }
 }
 
 // ---------- accounts ----------
