@@ -329,6 +329,28 @@ function logbookInfo(v){
   const weeks=Math.min(12,Math.floor((Math.min(now,to)-from)/(7*864e5)));
   return {from,to,done:now>=to,weeks,...st};
 }
+// The finished 12-week stretch with the highest business-use percentage. Windows step a day at a time,
+// and must have odometer readings within 2 weeks of each end so the total km (and the %) is trustworthy.
+function bestLogbookWindow(vid){
+  const pts=readings(vid);
+  if(pts.length<2) return null;
+  const trips=S.trips.filter(t=>t.vid===vid&&t.endOdo!=null&&t.type==="business").sort((a,b)=>a.startTs-b.startTs);
+  const cum=[0]; trips.forEach(t=>cum.push(cum[cum.length-1]+tripKm(t)));
+  const lower=(arr,key,x)=>{ let lo=0,hi=arr.length; while(lo<hi){ const m=(lo+hi)>>1; if(key(arr[m])<x) lo=m+1; else hi=m; } return lo; };
+  const DAY=864e5, LEN=84*DAY, SLACK=14*DAY, now=Date.now();
+  const d0=new Date(pts[0].ts); d0.setHours(0,0,0,0);
+  let best=null;
+  for(let from=d0.getTime(); from+LEN<=now; from+=DAY){
+    const to=from+LEN, a=lower(pts,p=>p.ts,from), b=lower(pts,p=>p.ts,to);
+    if(b-a<2 || pts[a].ts-from>SLACK || to-pts[b-1].ts>SLACK) continue;
+    let startOdo=Infinity, endOdo=-Infinity; for(let k=a;k<b;k++){ const o=pts[k].odo; if(o<startOdo) startOdo=o; if(o>endOdo) endOdo=o; }
+    const biz=cum[lower(trips,t=>t.startTs,to)]-cum[lower(trips,t=>t.startTs,from)];
+    const total=Math.max(endOdo-startOdo,biz); if(!total) continue;
+    const pctBiz=Math.min(1,biz/total);
+    if(!best || pctBiz>best.pctBiz+1e-9) best={from,to,biz,total,pctBiz,startOdo,endOdo};
+  }
+  return best;
+}
 function claim(vid,fy){
   const v=veh(vid); const [from,to]=fyRange(fy);
   const st=periodStats(vid,from,to);
@@ -1059,6 +1081,17 @@ function report(){
       <div class="kv"><span>Business km in period</span><b>${fmtKm(lb.biz)}</b></div>
       <div class="kv"><span>Business-use percentage</span><b>${pct(lb.pctBiz)}</b></div>`
     : `<p class="small muted">No 12-week logbook period set. Add a start date in Setup if you want to use the logbook method.</p>`;
+  const bw=bestLogbookWindow(v.id), bwCur=bw&&lb&&lb.from===bw.from;
+  const bestHtml = bw ? `<div class="panel" style="border-color:var(--biz);background:var(--biz-soft)">
+      <h3 style="margin-top:0;color:var(--biz)">Your peak 12 weeks</h3>
+      <div class="kv"><span>Period</span><b>${dFmt(bw.from)} – ${dFmt(bw.to-864e5)}</b></div>
+      <div class="kv"><span>Business km / total km</span><b>${fmtKm(bw.biz)} / ${fmtKm(bw.total)}</b></div>
+      <div class="kv"><span>Business-use percentage</span><b class="ok">${pct(bw.pctBiz)}</b></div>
+      ${bwCur?`<p class="small ok" style="margin-top:8px">This is your logbook period.</p>`
+        :`${lb&&lb.done&&lb.total?`<p class="small muted" style="margin-top:8px">${bw.pctBiz>lb.pctBiz?`${pct(bw.pctBiz-lb.pctBiz)} higher than your current logbook period.`:`No better than your current logbook period.`}</p>`:""}
+        <button class="btn block" id="useBest" style="margin-top:10px">Use as my logbook period</button>`}
+      <p class="note">Of all the 12-week stretches you've logged, this one has the highest business use. The ATO asks that your logbook period represents how you normally use the car, so only use it if it does.</p>
+    </div>` : "";
   return `${header("Report")}
   <div class="row" style="margin-bottom:12px">
     <div><label for="rfy" style="margin-top:0">Financial year</label><select id="rfy">${allFys().map(y=>`<option value="${y}" ${y===reportFy?"selected":""}>${fyLabel(y)}</option>`).join("")}</select></div>
@@ -1083,7 +1116,7 @@ function report(){
     return ks.length? ks.map(k=>`<div class="kv"><span>${esc(k)}</span><b>${money(by[k])}</b></div>`).join("")+`<div class="kv"><span>Total</span><b>${money(c.expTotal)}</b></div>`+(L&&c.total?`<p class="note">${L.toFixed(0)} litres of fuel · about ${(L/c.total*100).toFixed(1)} L/100 km</p>`:"")
     : `<p class="small muted">No expenses for this year yet. Use Fuel up or Add expense on the Drive tab.</p>`; })()}</div>
   <h2>12-week logbook</h2>
-  <div class="panel">${lbHtml}</div>
+  <div class="panel">${lbHtml}</div>${bestHtml}
   <h2>Export</h2>
   <div class="panel">
     <p class="small muted">The logbook file lists every trip with dates, start and end odometer, kilometres and reason, plus the period summary the ATO asks for.</p>
@@ -1095,6 +1128,8 @@ function report(){
 function bindReport(){
   $("#rfy").onchange=e=>{ reportFy=+e.target.value; render(); };
   $("#rv").onchange=e=>{ reportVid=e.target.value; render(); };
+  const ub=$("#useBest"); if(ub) ub.onclick=async()=>{ const v=veh(reportVid), bw=bestLogbookWindow(v.id); if(!bw) return;
+    if(await ask(`Make ${dFmt(bw.from)} – ${dFmt(bw.to-864e5)} your 12-week logbook period? Your business-use percentage becomes ${pct(bw.pctBiz)}.`,"Use this period")){ v.logStart=bw.from; persist(); render(); toast("Logbook period updated"); } };
   $("#expLog").onclick=()=>exportCsv(logbookCsv(),`logbook-${slug(veh(reportVid).name)}-${fyLabel(reportFy)}.csv`);
   $("#expSum").onclick=()=>exportCsv(summaryCsv(),`summary-${slug(veh(reportVid).name)}-${fyLabel(reportFy)}.csv`);
   $("#copySum").onclick=async()=>{ try{ await navigator.clipboard.writeText(summaryText()); toast("Summary copied"); }catch(e){ toast("Copy isn't available here"); } };
