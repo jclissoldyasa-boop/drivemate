@@ -19,6 +19,20 @@
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
+      <!-- Google/Facebook sign-in returns here. Verified via /.well-known/assetlinks.json. -->
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https" android:host="drivemate.agency-log.workers.dev" android:path="/auth/done"/>
+      </intent-filter>
+      <!-- Fallback if the link above opens in the browser instead. -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="drivemate" android:host="auth"/>
+      </intent-filter>
     </activity>
     <service android:name=".TrackerService" android:exported="false" android:foregroundServiceType="location"/>
     <receiver android:name=".BootReceiver" android:exported="true">

@@ -3,14 +3,16 @@
   "name": "drivemate",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-01",
-  // The web version of the app is served as a static file; only /api/* reaches the Worker code.
+  // The Worker runs first for every request so pages get security headers.
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/.well-known/*"]
+    "run_worker_first": true
   },
   // Bug reports become issues here once the GITHUB_TOKEN secret is set (wrangler secret put GITHUB_TOKEN).
   "vars": { "GITHUB_REPO": "jclissoldyasa-boop/drivemate" },
+  // Daily clean-up of expired sessions, attempt counters and old bug reports.
+  "triggers": { "crons": ["17 16 * * *"] },
   "d1_databases": [
     {
       "binding": "DB",

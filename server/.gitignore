@@ -1,3 +1,4 @@
 node_modules/
 public/
 .wrangler/
+src/csp.generated.js

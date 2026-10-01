@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DriveMate</title>
 <meta name="theme-color" content="#0F121C">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;1,800&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/fonts/fonts.css">
 <style>
 :root{
   color-scheme:dark;
@@ -135,6 +133,18 @@ ol.steps{padding-left:20px;margin:6px 0} ol.steps li{margin-bottom:6px}
 .receipt-full{max-width:100%;border-radius:10px;border:1px solid var(--line);margin-top:10px}
 .scan{font-size:14px;color:var(--muted)}
 .hidden{display:none}
+.social{display:grid;gap:10px;margin-top:4px}
+.social .btn{background:var(--surface);color:var(--ink);border:1.5px solid var(--line);font-weight:600}
+.social .btn svg{width:20px;height:20px}
+.or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px;margin:16px 0 4px}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.legal{font-size:13px;color:var(--muted);margin-top:14px}
+.legal a{color:var(--ink)}
+.check a{color:var(--biz)}
+.notice{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px))}
+.notice .in{max-width:560px;margin:0 auto;display:flex;gap:12px;align-items:center}
+.notice p{margin:0;font-size:14px;flex:1}
+.notice a{color:var(--biz)}
 </style>
 </head>
 <body>
@@ -255,6 +265,7 @@ async function initCloud(){
   }
   if(!account) return;
   setSync("Syncing…");
+  refreshMe();
   try{ await connect(accountStore,"me"); if(!screenStack.length) render(); }
   catch(e){ if(account) setSync("Saved on this phone · syncs when online"); }
 }
@@ -277,6 +288,7 @@ const accountStore={ collection(){ return {
 }; } };
 async function signedIn(res,isNew){
   saveAuth({token:res.token,email:res.email}); lsSet("dm.local",null);
+  await refreshMe();
   setSync("Syncing…");
   try{ await connect(accountStore,"me",{merge:true}); }catch(e){ setSync("Saved on this phone · syncs when online"); }
   closeAllScreens(); tab="drive"; render(); toTop();
@@ -435,6 +447,74 @@ function vehicleChips(sel,onAttr="data-veh"){
   return `<div class="chips" role="group" aria-label="Vehicle">${S.vehicles.map(v=>`<button class="chip" ${onAttr}="${v.id}" aria-pressed="${v.id===sel}">${esc(v.name)}</button>`).join("")}</div>`;
 }
 
+/* ---------- Google / Facebook sign-in, terms, storage notice ---------- */
+let siteConfig={google:false,facebook:false};
+const PROVIDER_ICONS={
+  google:'<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.1A6.6 6.6 0 0 1 5.5 12c0-.73.13-1.44.34-2.1V7.06H2.18A11 11 0 0 0 1 12c0 1.77.42 3.45 1.18 4.94l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15A10.5 10.5 0 0 0 12 1 11 11 0 0 0 2.18 7.06l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>',
+  facebook:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#1877F2"/><path fill="#fff" d="M15.12 15.47 15.6 12.4h-2.95v-2c0-.84.41-1.66 1.74-1.66h1.34V6.13s-1.22-.21-2.38-.21c-2.43 0-4.02 1.47-4.02 4.14v2.34H6.63v3.07h2.7V23a10.8 10.8 0 0 0 3.32 0v-7.53h2.47z"/></svg>'
+};
+const providerName = p => p==="google"?"Google":p==="facebook"?"Facebook":"another";
+async function loadConfig(){
+  if(inClaude()) return;
+  try{ siteConfig=await api("config"); if(!account && !screenStack.length) render(); }catch(e){}
+}
+function providerButtons(){
+  const ps=["google","facebook"].filter(p=>siteConfig[p]);
+  if(!ps.length) return "";
+  return `<div class="social">${ps.map(p=>`<button class="btn block" type="button" data-oauth="${p}">${PROVIDER_ICONS[p]}Continue with ${providerName(p)}</button>`).join("")}</div>
+  <p class="legal" style="margin-top:8px">By continuing with ${ps.map(providerName).join(" or ")}, you agree to the <a href="/terms" target="_blank">Terms of Use</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.</p>
+  <div class="or">or use your email</div>`;
+}
+function startOAuth(p){
+  const path=`/api/oauth/${p}/start`;
+  // Google doesn't allow sign-in inside an app's web view, so the Android app hands over to the browser.
+  if(NATIVE){ try{ NATIVE.openUrl(location.origin+path+"?app=1"); }catch(e){} toast("Finish signing in, then you'll come back here"); }
+  else location.href=path;
+}
+async function authReturn(){
+  const q=new URLSearchParams(location.search), h=new URLSearchParams(location.hash.slice(1));
+  const code=h.get("code"), err=h.get("error");
+  try{ history.replaceState(null,"","/"); }catch(e){}
+  if(code && q.get("app")==="1" && !NATIVE){
+    // Started in the Android app but the phone opened this page in the browser.
+    sheet("Back to the app",`<p style="margin-top:12px">Nearly done. Tap below to finish signing in to the DriveMate app.</p>
+      <a class="btn road block" href="intent://auth?code=${encodeURIComponent(code)}#Intent;scheme=drivemate;package=app.drivemate;end">Open DriveMate</a>
+      <p class="small muted" style="margin-top:14px">Want to use DriveMate in this browser instead? <button class="linkbtn" id="arHere">Sign in here</button></p>`,
+    (root,close)=>{ $("#arHere",root).onclick=()=>{ close(); finishOAuth(code); }; });
+    return;
+  }
+  if(err){ toast(err==="cancelled"?"Sign-in cancelled":"Sign-in didn't work. Try again."); return; }
+  if(code) finishOAuth(code);
+}
+async function finishOAuth(code){
+  setSync("Signing in…");
+  try{ await signedIn(await api("oauth/exchange",{method:"POST",body:{code}}),false); }
+  catch(e){ setSync("Saved on this phone"); toast(e.message); }
+}
+window.dmAuth=code=>{ closeAllScreens(); finishOAuth(code); };
+async function refreshMe(){
+  if(!account||inClaude()) return;
+  try{
+    const m=await api("me");
+    Object.assign(account,{email:m.email,hasPassword:m.hasPassword,providers:m.providers}); saveAuth(account);
+    if(!m.termsAccepted) termsSheet();
+  }catch(e){}
+}
+function termsSheet(){
+  if(document.getElementById("tAccept")) return;
+  sheet("Updated terms",`<p style="margin-top:12px">We've updated our <a href="/terms" target="_blank">Terms of Use</a> and <a href="/privacy" target="_blank">Privacy Policy</a>. Please review them and agree to keep using your account.</p>
+    <div class="err" id="tErr"></div>
+    <div class="actions"><button class="btn ghost" data-close>Not now</button><button class="btn road" id="tAccept">I agree</button></div>`,
+  (root,close)=>{ $("#tAccept",root).onclick=async()=>{ try{ await api("terms",{method:"POST"}); close(); toast("Thanks"); }catch(e){ $("#tErr",root).textContent=e.message; } }; });
+}
+function storageNotice(){
+  if(inClaude()||lsGet("dm.notice")) return;
+  const el=document.createElement("div"); el.className="notice"; el.setAttribute("role","region"); el.setAttribute("aria-label","Storage notice");
+  el.innerHTML=`<div class="in"><p>DriveMate stores your logbook and sign-in on this device so it works offline. We don't use advertising or tracking cookies. <a href="/privacy">Privacy Policy</a></p><button class="btn road" style="min-height:44px;padding:8px 20px">OK</button></div>`;
+  el.querySelector("button").onclick=()=>{ lsSet("dm.notice","1"); el.remove(); };
+  document.body.appendChild(el);
+}
+
 /* ---------- account screens ---------- */
 let accountMode="create";
 function accountScreen(){
@@ -442,28 +522,33 @@ function accountScreen(){
   return `${header(c?"Create your account":"Sign in")}
   <p class="muted">${c?"Your trips, odometer readings and expenses are saved to your account, so they're safe if you lose your phone and you can use them on another device.":"Sign in to get your trips, odometer readings and expenses on this device."}</p>
   <div class="panel">
+    ${providerButtons()}
     <div class="seg" role="group"><button data-am="create" aria-pressed="${c}">Create account</button><button data-am="signin" aria-pressed="${!c}">Sign in</button></div>
     <form id="aForm" novalidate>
       <label for="aEmail">Email</label><input id="aEmail" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="off">
       <label for="aPass">Password</label><input id="aPass" name="password" type="password" autocomplete="${c?"new-password":"current-password"}" ${c?'minlength="8"':""}>
       ${c?`<p class="small muted" style="margin-top:6px">At least 8 characters.</p>`:`<div style="text-align:right"><button class="linkbtn" id="aForgot" type="button" style="padding:8px 0">Forgot your password?</button></div>`}
+      ${c?`<label class="check"><input type="checkbox" id="aTerms"> <span>I agree to the <a href="/terms" target="_blank">Terms of Use</a> and <a href="/privacy" target="_blank">Privacy Policy</a></span></label>`:""}
       <div class="err" id="aErr"></div>
       <button class="btn road block" id="aGo" type="submit" style="margin-top:8px">${c?"Create account":"Sign in"}</button>
     </form>
   </div>
   <button class="linkbtn" id="aSkip" style="margin-top:12px">Use without an account</button>
-  <p class="small muted">Without an account, everything is kept only on this ${NATIVE?"phone":"device"}. You can create an account later in Setup.</p>`;
+  <p class="small muted">Without an account, everything is kept only on this ${NATIVE?"phone":"device"}. You can create an account later in Setup.</p>
+  <p class="legal"><a href="/privacy" target="_blank">Privacy Policy</a> · <a href="/terms" target="_blank">Terms of Use</a></p>`;
 }
 function bindAccount(){
   document.querySelectorAll("[data-am]").forEach(b=>b.onclick=()=>{ accountMode=b.dataset.am; render(); });
+  document.querySelectorAll("[data-oauth]").forEach(b=>b.onclick=()=>startOAuth(b.dataset.oauth));
   $("#aSkip").onclick=()=>{ lsSet("dm.local","1"); render(); };
   const f=$("#aForgot"); if(f) f.onclick=resetSheet;
   $("#aForm").onsubmit=async ev=>{
     ev.preventDefault();
     const btn=$("#aGo"), err=$("#aErr"), label=btn.textContent;
     err.textContent=""; btn.disabled=true; btn.textContent="One moment…";
+    if(accountMode==="create" && !$("#aTerms").checked){ err.textContent="Please agree to the Terms of Use and Privacy Policy."; btn.disabled=false; btn.textContent=label; return; }
     try{
-      const res=await api(accountMode==="create"?"signup":"login",{method:"POST",body:{email:$("#aEmail").value,password:$("#aPass").value}});
+      const res=await api(accountMode==="create"?"signup":"login",{method:"POST",body:{email:$("#aEmail").value,password:$("#aPass").value,acceptTerms:accountMode==="create"}});
       await signedIn(res,accountMode==="create");
     }catch(e){ err.textContent=e.message; btn.disabled=false; btn.textContent=label; }
   };
@@ -496,21 +581,26 @@ function recoverySheet(code,isNew){
 // The hidden username lets password managers update the right saved login.
 const pwUser = () => `<input type="text" name="username" autocomplete="username" value="${esc(account?account.email:"")}" hidden>`;
 function passwordSheet(){
-  sheet("Change password",`<form id="pwForm" novalidate>${pwUser()}
-    <label for="pwCur">Current password</label><input id="pwCur" name="current-password" type="password" autocomplete="current-password">
+  const set=account.hasPassword===false;
+  sheet(set?"Set a password":"Change password",`<form id="pwForm" novalidate>${pwUser()}
+    ${set?`<p class="small muted" style="margin-top:12px">Add a password so you can also sign in with your email${account.email?"":" (you'll need an email on your account — contact us to add one)"}.</p>`:`<label for="pwCur">Current password</label><input id="pwCur" name="current-password" type="password" autocomplete="current-password">`}
     <label for="pwNew">New password</label><input id="pwNew" name="new-password" type="password" autocomplete="new-password" minlength="8">
     <p class="small muted" style="margin-top:6px">At least 8 characters. Your other devices will be signed out.</p>
     <div class="err" id="pwErr"></div>
-    <div class="actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn road" id="pwGo" type="submit">Change password</button></div></form>
-    <div style="text-align:center"><button class="linkbtn" id="pwForgot">Forgot your current password?</button></div>`,
+    <div class="actions"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn road" id="pwGo" type="submit">${set?"Set password":"Change password"}</button></div></form>
+    ${set?"":`<div style="text-align:center"><button class="linkbtn" id="pwForgot">Forgot your current password?</button></div>`}`,
   (root,close)=>{
-    $("#pwForgot",root).onclick=()=>{ close(); resetSheet(); };
+    const pf=$("#pwForgot",root); if(pf) pf.onclick=()=>{ close(); resetSheet(); };
     $("#pwForm",root).onsubmit=async ev=>{
       ev.preventDefault();
       const b=$("#pwGo",root), err=$("#pwErr",root); err.textContent="";
       if($("#pwNew",root).value.length<8){ err.textContent="Use at least 8 characters for the new password."; return; }
       b.disabled=true;
-      try{ await api("password",{method:"POST",body:{current:$("#pwCur",root).value,password:$("#pwNew",root).value}}); close(); toast("Password changed"); }
+      try{
+        const res=await api("password",{method:"POST",body:{current:set?"":$("#pwCur",root).value,password:$("#pwNew",root).value}});
+        close(); account.hasPassword=true; saveAuth(account); if(!screenStack.length) render();
+        if(res.recovery) recoverySheet(res.recovery,"new"); else toast("Password changed");
+      }
       catch(e){ err.textContent=e.message; b.disabled=false; }
     };
   });
@@ -535,9 +625,10 @@ function accountPanel(){
   if(!account) return `<h2>Account</h2><div class="panel"><p class="small muted">Create an account or sign in to save your data and use it on another device.</p>
     <button class="btn road block" id="acSignIn">Create account or sign in</button></div>`;
   return `<h2>Account</h2><div class="panel">
-    <p class="small muted" style="margin:0">Signed in as</p><p style="font-weight:600;word-break:break-all">${esc(account.email)}</p>
-    <button class="btn ghost block" id="acPw" style="margin-top:12px">Change password</button>
-    <button class="btn ghost block" id="acRc" style="margin-top:10px">Get a new recovery code</button>
+    <p class="small muted" style="margin:0">Signed in as</p><p style="font-weight:600;word-break:break-all">${esc(account.email||"your "+providerName((account.providers||[])[0])+" account")}</p>
+    ${(account.providers||[]).length?`<p class="small muted">Linked to ${account.providers.map(providerName).join(" and ")}.</p>`:""}
+    <button class="btn ghost block" id="acPw" style="margin-top:12px">${account.hasPassword===false?"Set a password":"Change password"}</button>
+    ${account.hasPassword===false?"":`<button class="btn ghost block" id="acRc" style="margin-top:10px">Get a new recovery code</button>`}
     <button class="btn ghost block" id="acOut" style="margin-top:10px">Sign out</button>
     <button class="btn danger block" id="acDel" style="margin-top:10px">Delete account</button></div>`;
 }
@@ -557,12 +648,13 @@ function bindAccountPanel(){
   const del=$("#acDel"); if(del) del.onclick=()=>sheet("Delete account",`
     <p style="margin-top:12px">This permanently deletes your account and every vehicle, trip, reading and expense saved in it. It can't be undone.</p>
     <p class="small muted">Want a copy first? Use “Save a DriveMate data file” in Setup before deleting.</p>
-    <label for="dPass">Enter your password to confirm</label><input id="dPass" type="password" autocomplete="current-password">
+    ${account.hasPassword===false?`<label for="dPass">Type DELETE to confirm</label><input id="dPass" autocomplete="off" autocapitalize="characters">`:`<label for="dPass">Enter your password to confirm</label><input id="dPass" type="password" autocomplete="current-password">`}
     <div class="err" id="dErr"></div>
     <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn danger" id="dGo">Delete account</button></div>`,
   (root,close)=>{
     $("#dGo",root).onclick=async()=>{
-      try{ await api("account",{method:"DELETE",body:{password:$("#dPass",root).value}}); }
+      const v=$("#dPass",root).value;
+      try{ await api("account",{method:"DELETE",body:account.hasPassword===false?{confirm:v.trim().toUpperCase()}:{password:v}}); }
       catch(e){ $("#dErr",root).textContent=e.message; return; }
       close(); clearPhone(); setSync("Saved on this phone"); accountMode="create"; render(); toast("Account deleted");
     };
@@ -623,7 +715,8 @@ function helpPanel(){
   return `<h2>Help</h2><div class="panel">
     ${NATIVE&&UPDATE_REPO?`<div class="kv"><span>App version</span><b>${appVersion()}</b></div>
     <button class="btn ${update?"road":"ghost"} block" id="updCheck" style="margin-top:12px">${update?"Install update":"Check for updates"}</button>`:""}
-    <button class="btn ghost block" id="bugBtn" style="margin-top:${NATIVE&&UPDATE_REPO?10:0}px">Report a problem</button></div>`;
+    <button class="btn ghost block" id="bugBtn" style="margin-top:${NATIVE&&UPDATE_REPO?10:0}px">Report a problem</button>
+    <p class="legal" style="margin-bottom:0"><a href="/privacy">Privacy Policy</a> · <a href="/terms">Terms of Use</a> · <a href="mailto:j.clissoldyasa@gmail.com">Contact us</a></p></div>`;
 }
 function bugSheet(){
   sheet("Report a problem",`
@@ -1184,6 +1277,7 @@ if(NATIVE) syncFromNative(); else if(S.live) startGps();
 (function handleLaunch(){
   let p=null, e=null;
   try{
+    if(location.pathname==="/auth/done") throw 0; // a sign-in return, not a trip shortcut
     const q=new URLSearchParams(location.search); p=q.get("start"); e=q.get("end");
     if(!p&&!e&&location.hash.length>1){ const h=new URLSearchParams(location.hash.slice(1)); if(location.hash.includes("start")) p=h.get("start")||"1"; if(location.hash.includes("end")) e=h.get("end")||"1"; }
     if(p||e) history.replaceState(null,"",location.pathname);
@@ -1193,6 +1287,9 @@ if(NATIVE) syncFromNative(); else if(S.live) startGps();
   render();
 })();
 initCloud();
+loadConfig();
+storageNotice();
+if(location.pathname==="/auth/done") authReturn();
 checkUpdate(false).then(()=>{ if(update&&!screenStack.length) render(); });
 document.addEventListener("visibilitychange",()=>{
   if(document.hidden || inClaude() || !account) return;

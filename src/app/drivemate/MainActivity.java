@@ -70,12 +70,20 @@ public class MainActivity extends Activity {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
                 String path = u.getPath() == null ? "/" : u.getPath();
-                if (HOST.equals(u.getHost()) && "GET".equals(r.getMethod()) && (path.equals("/") || path.equals("/index.html"))) {
-                    try {
-                        return new WebResourceResponse("text/html", "utf-8", getAssets().open("index.html"));
-                    } catch (java.io.IOException e) { return null; }
+                if (!HOST.equals(u.getHost()) || !"GET".equals(r.getMethod())) return null;
+                String asset = null, type = "text/html";
+                if (path.equals("/") || path.equals("/index.html") || path.equals("/auth/done")) asset = "index.html";
+                else if (path.equals("/privacy") || path.equals("/terms")) asset = path.substring(1) + ".html";
+                else if (path.matches("/fonts/[A-Za-z0-9-]+\\.(woff2|css)")) {
+                    asset = path.substring(1);
+                    type = path.endsWith(".css") ? "text/css" : "font/woff2";
                 }
-                return null; // API calls, fonts etc. go to the network as normal
+                if (asset == null) return null; // API calls go to the network as normal
+                try {
+                    WebResourceResponse res = new WebResourceResponse(type, "utf-8", getAssets().open(asset));
+                    res.setResponseHeaders(pageHeaders());
+                    return res;
+                } catch (java.io.IOException e) { return null; }
             }
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
@@ -95,12 +103,19 @@ public class MainActivity extends Activity {
         });
 
         pendingEnd = getIntent().getBooleanExtra("end", false);
-        if (saved != null) web.restoreState(saved);
+        String auth = authCode(getIntent());
+        if (auth != null) web.loadUrl(HOME + "auth/done#code=" + auth);
+        else if (saved != null) web.restoreState(saved);
         else web.loadUrl(HOME);
     }
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        String auth = authCode(intent);
+        if (auth != null) {
+            if (loaded) js("window.dmAuth&&window.dmAuth('" + auth + "')"); else web.loadUrl(HOME + "auth/done#code=" + auth);
+            return;
+        }
         if (intent.getBooleanExtra("end", false)) {
             if (loaded) js("window.dmNative&&window.dmNative('end')"); else pendingEnd = true;
         }
@@ -121,11 +136,42 @@ public class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     @Override public void onBackPressed() {
         web.evaluateJavascript("(window.dmBack&&window.dmBack())?'y':'n'", r -> {
-            if (!"\"y\"".equals(r)) super.onBackPressed();
+            if ("\"y\"".equals(r)) return;
+            if (web.canGoBack()) web.goBack(); else super.onBackPressed();
         });
     }
 
     private void js(String code) { web.evaluateJavascript(code, null); }
+
+    /**
+     * The one-time code from a Google/Facebook sign-in, arriving either as the App Link
+     * https://HOST/auth/done#code=… or, as a fallback, drivemate://auth?code=….
+     */
+    private static String authCode(Intent intent) {
+        Uri u = intent == null ? null : intent.getData();
+        if (u == null) return null;
+        String code = null;
+        if ("https".equals(u.getScheme()) && HOST.equals(u.getHost()) && "/auth/done".equals(u.getPath())) {
+            String frag = u.getEncodedFragment();
+            if (frag != null) for (String kv : frag.split("&")) if (kv.startsWith("code=")) code = kv.substring(5);
+        } else if ("drivemate".equals(u.getScheme()) && "auth".equals(u.getHost())) {
+            code = u.getQueryParameter("code");
+        }
+        return code != null && code.matches("[A-Za-z0-9_-]{43}") ? code : null;
+    }
+
+    private java.util.Map<String, String> pageHeaders() {
+        java.util.Map<String, String> h = new java.util.HashMap<>();
+        try (java.io.InputStream in = getAssets().open("csp.txt")) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            h.put("Content-Security-Policy", out.toString("UTF-8").trim());
+        } catch (java.io.IOException ignored) {}
+        h.put("X-Content-Type-Options", "nosniff");
+        h.put("Referrer-Policy", "no-referrer");
+        return h;
+    }
 
     // ---------- permissions ----------
 

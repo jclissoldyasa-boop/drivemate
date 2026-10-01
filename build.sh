@@ -7,8 +7,8 @@ BT=$SDK/build-tools/35.0.0
 JAR=$SDK/platforms/android-34/android.jar
 VERSION_CODE=${VERSION_CODE:-$(( $(date +%s) / 60 ))}  # minutes since 1970: always increases
 VERSION_NAME=${VERSION_NAME:-1.0.$VERSION_CODE}
-rm -rf build && mkdir -p build/gen build/classes build/dex assets
-cp app.html assets/index.html
+rm -rf build && mkdir -p build/gen build/classes build/dex
+node server/build.mjs
 
 $BT/aapt2 compile --dir res -o build/res.zip
 $BT/aapt2 link -I "$JAR" --manifest AndroidManifest.xml -A assets build/res.zip \
