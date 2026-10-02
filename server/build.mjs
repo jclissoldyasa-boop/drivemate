@@ -6,7 +6,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 const root = path.resolve(import.meta.dirname, "..");
-const SITE = "https://drivemate.agency-log.workers.dev"; // public address, for link previews
+const SITE = "https://drivemate.drivemate-app.workers.dev"; // public address, for link previews
 const style = `<style>\n${fs.readFileSync(path.join(root, "legal/_style.css"), "utf8")}</style>`;
 const pages = {
   "index.html": fs.readFileSync(path.join(root, "app.html"), "utf8"),
@@ -19,7 +19,7 @@ const pages = {
 const landing = fs.readFileSync(path.join(root, "landing/drivemate-landing.html"), "utf8")
   .replace(/<link rel="preconnect"[^>]*>\n?/g, "")
   .replace(/<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.com[^>]*>/, '<link rel="stylesheet" href="/fonts/fonts.css">')
-  .replaceAll("https://drivemate.agency-log.workers.dev/", "/");
+  .replaceAll("https://drivemate.drivemate-app.workers.dev/", "/");
 const webOnly = {
   "welcome.html": `<!doctype html>
 <html lang="en-AU">

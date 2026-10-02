@@ -204,7 +204,7 @@ const monthKey = ts => { const d=new Date(ts); return `m-${d.getFullYear()}-${St
 const tripKm = t => Math.max(0,(t.endOdo||0)-(t.startOdo||0));
 
 /* ---------- storage: local mirror + cloud (claude.ai, or a DriveMate account) ---------- */
-const API_HOST = "https://drivemate.agency-log.workers.dev"; // the Android app loads the page from file://
+const API_HOST = "https://drivemate.drivemate-app.workers.dev"; // the Android app loads the page from file://
 let cloud=null, me=null, saveTimer=null, retryTimer=null, dirtyCfg=false, dirtyMonths=new Set(), syncState="local";
 let account=null; // {token,email} when signed in to a DriveMate account
 const inClaude = () => !!(window.claude && typeof claude.use==="function");

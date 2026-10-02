@@ -4,3 +4,5 @@ assets/
 # Signing key: keep it private and backed up. Updates must be signed with it.
 *.keystore
 *.idsig
+.env
+server/.env

@@ -1,8 +1,8 @@
 // Security tests for the DriveMate API. They run against a live deployment and clean up after themselves.
-//   BASE=https://drivemate.agency-log.workers.dev node test/security.test.mjs
+//   BASE=https://drivemate.drivemate-app.workers.dev node test/security.test.mjs
 // Each test account uses a "sectest-" email and is deleted at the end.
 
-const BASE = process.env.BASE || "https://drivemate.agency-log.workers.dev";
+const BASE = process.env.BASE || "https://drivemate.drivemate-app.workers.dev";
 const results = [];
 const created = [];
 let failures = 0;

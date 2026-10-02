@@ -35,7 +35,7 @@ public class MainActivity extends Activity {
      * The page is bundled in the APK but shown under the real site address, so it works offline,
      * talks to the API as the same site, and password managers recognise the sign-in form.
      */
-    static final String HOST = "drivemate.agency-log.workers.dev";
+    static final String HOST = "drivemate.drivemate-app.workers.dev";
     static final String HOME = "https://" + HOST + "/";
     private static final int REQ_LOCATION = 1, REQ_BACKGROUND = 2, REQ_NOTIF = 3, REQ_BT = 4, REQ_FILE = 10;
     private static WeakReference<MainActivity> current = new WeakReference<>(null);

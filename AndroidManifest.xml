@@ -26,7 +26,7 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="https" android:host="drivemate.agency-log.workers.dev" android:path="/auth/done"/>
+        <data android:scheme="https" android:host="drivemate.drivemate-app.workers.dev" android:path="/auth/done"/>
       </intent-filter>
       <!-- Fallback if the link above opens in the browser instead. -->
       <intent-filter>
