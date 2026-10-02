@@ -7,3 +7,4 @@ assets/
 .env
 server/.env
 libs/
+.ntfy-topic

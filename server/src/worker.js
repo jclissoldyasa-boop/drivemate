@@ -160,6 +160,7 @@ async function signup(req, env) {
   const id = crypto.randomUUID(), code = recoveryCode(), now = Date.now();
   await env.DB.prepare("INSERT INTO users (id, email, pass, recovery, created, terms_version, terms_accepted) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .bind(id, email, await hash(password), await hash(normCode(code)), now, TERMS_VERSION, now).run();
+  await notifySignup(env, "email");
   return json({ token: await newSession(env, id), email, recovery: code });
 }
 
@@ -465,6 +466,7 @@ async function oauthCallback(req, env, url, provider) {
     // By continuing with Google/Facebook the person agrees to the terms (stated next to the buttons).
     await env.DB.prepare("INSERT INTO users (id, email, pass, recovery, created, terms_version, terms_accepted) VALUES (?, ?, '', '', ?, ?, ?)")
       .bind(userId, email || `${provider}:${subject}`, now, TERMS_VERSION, now).run();
+    await notifySignup(env, provider);
   }
   await env.DB.prepare("INSERT OR IGNORE INTO identities (provider, subject, user_id, created) VALUES (?, ?, ?, ?)")
     .bind(provider, subject, userId, Date.now()).run();
@@ -547,6 +549,20 @@ async function openIssue(env, id, message, diag) {
     }
     return (await r.json()).html_url;
   } catch (e) { console.error(e); return `not sent: ${e.message}`; }
+}
+
+/** Pushes a "new account" alert to the owner's phone via ntfy when NTFY_TOPIC is set. No personal details are sent. */
+async function notifySignup(env, method) {
+  if (!env.NTFY_TOPIC) return;
+  try {
+    const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first("n");
+    const how = { email: "email + password", google: "Google sign-in", facebook: "Facebook sign-in" }[method] || method;
+    await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
+      method: "POST", signal: AbortSignal.timeout(3000),
+      headers: { Title: "New DriveMate account", Tags: "car" },
+      body: `Someone signed up with ${how}. ${total} account${total === 1 ? "" : "s"} in total.`,
+    });
+  } catch (e) { console.error("ntfy", e); }
 }
 
 // ---------- crypto helpers ----------
