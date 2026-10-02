@@ -6,3 +6,4 @@ assets/
 *.idsig
 .env
 server/.env
+libs/

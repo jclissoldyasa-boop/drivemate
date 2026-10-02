@@ -23,7 +23,21 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
+
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Rect;
+import android.util.Base64;
+import com.google.android.gms.common.moduleinstall.ModuleInstall;
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest;
+import com.google.mlkit.common.MlKitException;
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
@@ -151,6 +165,7 @@ public class MainActivity extends Activity {
     }
 
     private void js(String code) { web.evaluateJavascript(code, null); }
+    private void ocrDone(String id, String json) { runOnUiThread(() -> js("window.dmOcr&&window.dmOcr(" + JSONObject.quote(id) + "," + json + ")")); }
 
     /** Opens the Record odometer screen for a vehicle (from a reminder notification). */
     private void openOdo(String vid) {
@@ -380,6 +395,47 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (ActivityNotFoundException ignored) {}
             });
+        }
+
+        /**
+         * Reads the text on a receipt photo on the phone (ML Kit, via Google Play services; the photo
+         * never leaves the device). Answers window.dmOcr(id, {lines:[{t,x,y,w,h}],w,h}) or
+         * window.dmOcr(id, {error:"downloading"|"failed"}).
+         */
+        @JavascriptInterface public void ocr(String id, String jpegBase64) {
+            try {
+                byte[] bytes = Base64.decode(jpegBase64, Base64.DEFAULT);
+                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bmp == null) { ocrDone(id, "{\"error\":\"failed\"}"); return; }
+                com.google.mlkit.common.sdkinternal.MlKitContext.initializeIfNeeded(getApplicationContext());
+                TextRecognizer rec = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+                rec.process(InputImage.fromBitmap(bmp, 0))
+                    .addOnSuccessListener(text -> {
+                        try {
+                            JSONArray lines = new JSONArray();
+                            for (Text.TextBlock b : text.getTextBlocks()) for (Text.Line l : b.getLines()) {
+                                Rect r = l.getBoundingBox(); if (r == null) continue;
+                                lines.put(new JSONObject().put("t", l.getText()).put("x", r.left).put("y", r.top).put("w", r.width()).put("h", r.height()));
+                            }
+                            ocrDone(id, new JSONObject().put("lines", lines).put("w", bmp.getWidth()).put("h", bmp.getHeight()).toString());
+                        } catch (Exception e) { Store.log(MainActivity.this, "reading receipt text", e); ocrDone(id, "{\"error\":\"failed\"}"); }
+                        rec.close();
+                    })
+                    .addOnFailureListener(e -> {
+                        rec.close();
+                        if (e instanceof MlKitException && ((MlKitException) e).getErrorCode() == MlKitException.UNAVAILABLE) {
+                            // The text model comes from Google Play services; ask for it and try again shortly.
+                            ModuleInstall.getClient(MainActivity.this).installModules(ModuleInstallRequest.newBuilder().addApi(rec).build());
+                            ocrDone(id, "{\"error\":\"downloading\"}");
+                        } else {
+                            Store.log(MainActivity.this, "reading a receipt", e instanceof Exception ? (Exception) e : new Exception(e));
+                            ocrDone(id, "{\"error\":\"failed\"}");
+                        }
+                    });
+            } catch (Throwable e) {
+                Store.log(MainActivity.this, "reading a receipt", new Exception(e));
+                ocrDone(id, "{\"error\":\"failed\"}");
+            }
         }
 
         @JavascriptInterface public String saveFile(String name, String text, String mime) {

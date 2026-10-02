@@ -1219,7 +1219,8 @@ function expSheet(e,presetCat){
       busy=true; scan.textContent="Reading the receipt…";
       const r=await readReceipt(photo);
       busy=false;
-      if(!r){ scan.textContent="Photo attached. Couldn't read it automatically, so enter the details below."; return; }
+      if(r&&r.error==="downloading"){ scan.textContent="The receipt reader is still downloading to this phone. Enter the details for now — it'll work in a few minutes."; return; }
+      if(!r||r.error){ scan.textContent="Photo attached. Couldn't read it automatically, so enter the details below."; return; }
       if(r.category&&EXP_CATS.includes(r.category)) { $("#xc",root).value=r.category; $("#xc",root).onchange(); }
       if(r.total) $("#xa",root).value=(+r.total).toFixed(2);
       if(r.date&&/^\d{4}-\d{2}-\d{2}$/.test(r.date)) $("#xd",root).value=r.date;
@@ -1253,6 +1254,13 @@ async function shrinkImage(file){
 }
 let sampleNs;
 async function readReceipt(blob){
+  if(!inClaude()){
+    const o=await nativeOcr(blob);
+    if(!o) return null;
+    if(o.error) return o;
+    const r=parseReceipt(ocrRows(o));
+    return r.total||r.date||r.litres||r.supplier ? r : null;
+  }
   try{
     if(sampleNs===undefined) sampleNs = (window.claude&&claude.use) ? await claude.use("sample") : null;
     if(!sampleNs) return null;
@@ -1263,6 +1271,68 @@ Read it and reply with ONLY a JSON object, no other text:
 Australian dates are day/month/year. If a value can't be read, use null.`;
     return await sampleNs.json(prompt,{images:[blob],modelTier:"quick"});
   }catch(e){ return null; }
+}
+// ---- on-phone receipt reading (Android app): ML Kit gives text lines with positions; we rebuild the
+// printed rows and pick out the total, date, litres, supplier and category with simple rules.
+let ocrSeq=0; const ocrWait={};
+window.dmOcr=(id,res)=>{ const f=ocrWait[id]; if(f){ delete ocrWait[id]; f(res); } };
+function nativeOcr(blob){
+  return new Promise(res=>{
+    if(!NATIVE||typeof NATIVE.ocr!=="function") return res(null);
+    const rd=new FileReader();
+    rd.onerror=()=>res(null);
+    rd.onload=()=>{
+      const id="o"+(++ocrSeq); ocrWait[id]=res;
+      setTimeout(()=>{ if(ocrWait[id]){ delete ocrWait[id]; res({error:"failed"}); } },30000);
+      try{ NATIVE.ocr(id,String(rd.result).split(",")[1]); }catch(e){ delete ocrWait[id]; res(null); }
+    };
+    rd.readAsDataURL(blob);
+  });
+}
+// Lines that sit at the same height are one printed row ("TOTAL ........ $54.20"), read left to right.
+function ocrRows(o){
+  const ls=(o.lines||[]).filter(l=>l.t).map(l=>({...l,c:l.y+l.h/2})).sort((a,b)=>a.c-b.c);
+  const rows=[];
+  ls.forEach(l=>{ const r=rows[rows.length-1]; if(r && Math.abs(l.c-r.c) < Math.min(l.h,r.h)*.6) r.items.push(l); else rows.push({c:l.c,items:[l]}); });
+  return rows.map(r=>r.items.sort((a,b)=>a.x-b.x).map(i=>i.t).join("  "));
+}
+const MONTHS=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+const BRANDS=["Ampol","BP","Shell","Caltex","7-Eleven","Coles Express","Reddy Express","United","Liberty","Puma","Metro","Mobil","EG","OTR","Speedway","Viva","Costco","Woolworths","Coles","Midas","Bridgestone","Beaurepaires","Bob Jane","Tyrepower","Kmart Tyre","Repco","Supercheap Auto","Autobarn","Ultra Tune","mycar","Jax Tyres","VicRoads","Service NSW","NRMA","RACV","RACQ","RAA","Linkt","CityLink","EastLink","Wilson Parking","Secure Parking","Care Park"];
+const amountsIn=s=>{ const m=[...s.matchAll(/(?:^|[^\d.])\$?\s?(\d{1,5}(?:,\d{3})*[.,]\d{2})(?![\d%])/g)].map(x=>+x[1].replace(/,(?=\d{3})/g,"").replace(",",".")); return m; };
+function parseReceipt(rows){
+  const up=rows.map(r=>r.toUpperCase()), all=up.join("\n");
+  // Total: the amount on (or just under) a TOTAL / AMOUNT DUE row, ignoring GST, subtotal and cash/change rows.
+  const skip=/SUB\s*-?\s*TOTAL|TOTAL\s+GST|GST\s+(INCL|INC\b|INCLUDED|AMOUNT|TOTAL)|INCL.*GST.*TOTAL|SAVING|DISCOUNT|CHANGE|TENDER|CASH\s*OUT|ROUNDING|TOTAL\s+(ITEMS|QTY)/;
+  const pick=re=>{ const c=[]; up.forEach((r,i)=>{ if(!re.test(r)||skip.test(r)) return; const m=amountsIn(r); if(m.length) c.push(m[m.length-1]); else if(up[i+1]){ const n=amountsIn(up[i+1]); if(n.length) c.push(n[0]); } }); return c.length?Math.max(...c):null; };
+  let total=pick(/\bTOTAL\b/) ?? pick(/AMOUNT\s*(DUE|PAID)|BALANCE\s*DUE|\bEFTPOS\b|\bPURCHASE\b|\bAMOUNT\b|\bVISA\b|MASTERCARD|DEBIT|CREDIT/);
+  if(total==null){ const m=up.filter(r=>!skip.test(r)).flatMap(amountsIn).filter(x=>x>0&&x<20000); total=m.length?Math.max(...m):null; }
+  // Litres: "45.23 L", "45.230L", "45.2 LITRES", "LTR 45.23".
+  let litres=null; const lm=all.match(/(\d{1,3}[.,]\d{1,3})\s*(?:L|LT|LTR|LTRS|LITRE|LITRES)\b/) || all.match(/\b(?:LTR|LTRS|LITRES|VOLUME|QTY)\s*:?\s*(\d{1,3}[.,]\d{1,3})\b/);
+  if(lm){ const v=+lm[1].replace(",","."); if(v>=1&&v<=250) litres=v; }
+  // Date: Australian day/month/year, or "12 Sep 2026"; must be within the last two years.
+  let date=null; const now=Date.now();
+  const ok=(y,m,d)=>{ y=+y; if(y<100) y+=2000; const t=new Date(y,m-1,d).getTime(); if(m<1||m>12||d<1||d>31||t>now+864e5||t<now-730*864e5) return null; return `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`; };
+  for(const r of up){
+    let m=r.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4}|\d{2})\b/); if(m&&(date=ok(m[3],+m[2],+m[1]))) break;
+    m=r.match(/\b(\d{4})-(\d{2})-(\d{2})\b/); if(m&&(date=ok(m[1],+m[2],+m[3]))) break;
+    m=r.match(/\b(\d{1,2})[\s\-]*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*[\s\-,]*(\d{4}|\d{2})\b/); if(m&&(date=ok(m[3],MONTHS.indexOf(m[2])+1,+m[1]))) break;
+  }
+  // Supplier: a known brand, else the first wordy line at the top of the receipt.
+  let supplier=null;
+  for(const r of rows){ const b=BRANDS.find(b=>new RegExp(`(^|[^A-Z])${b.toUpperCase().replace(/[-]/g,"\\-")}([^A-Z]|$)`).test(r.toUpperCase())); if(b){ supplier=b; break; } }
+  if(!supplier) supplier=rows.slice(0,5).find(r=>/[A-Za-z]{3,}/.test(r) && !/TAX\s*INVOICE|RECEIPT|ABN|A\.B\.N|WELCOME|THANK|PH(ONE)?[:\s]|TEL|WWW|\.COM|STORE\s*\d|^\d/i.test(r))?.trim().slice(0,40)||null;
+  // Category from the words on the receipt.
+  const has=re=>re.test(all);
+  const category = litres||has(/UNLEADED|DIESEL|\bULP\b|\bPULP\b|\bE10\b|\bU9[158]\b|\b9[158]\s*(OCT|RON|PREMIUM)|PREMIUM\s*9[58]|V-?POWER|VORTEX|ULTIMATE|\bLPG\b|\bPUMP\s*\d/) ? "Fuel"
+    : has(/\bTOLL|LINKT|CITYLINK|EASTLINK|\bE-?TAG|\bPARKING|CAR\s*PARK|CARE\s*PARK/) ? "Tolls & parking"
+    : has(/\bTYRES?\b|\bWHEEL\s*ALIGN|BALANCE\s*&?\s*ROTATE/) ? "Tyres"
+    : has(/REGISTRATION|\bREGO\b|VICROADS|SERVICE\s*NSW|TRANSPORT\s*FOR|DEPT.*TRANSPORT|\bTAC\b|\bCTP\b/) ? "Registration"
+    : has(/INSURANCE|\bPOLICY\b|PREMIUM\s*(PAID|AMOUNT)/) ? "Insurance"
+    : has(/CAR\s*WASH|\bWASH\b|DETAIL|VALET/) ? "Cleaning"
+    : has(/\bSERVICE\b|\bLOGBOOK\b|OIL\s*(&|AND)?\s*FILTER|\bFILTER\b|SPARK\s*PLUG/) ? "Maintenance & servicing"
+    : has(/REPAIR|\bPARTS\b|LABOUR|LABOR|BRAKE|BATTERY|WINDSCREEN|PANEL/) ? "Repairs" : null;
+  const grade=(all.match(/\b(UNLEADED\s*9[158]|PREMIUM\s*9[58]|E10|U9[158]|DIESEL|LPG|V-?POWER\s*\w*|VORTEX\s*\w*|ULTIMATE\s*\w*)\b/)||[])[1];
+  return {date,total,litres,supplier,description:category==="Fuel"&&grade?grade.replace(/\s+/g," "):null,category};
 }
 let assetsNs;
 async function uploadReceipt(blob){
