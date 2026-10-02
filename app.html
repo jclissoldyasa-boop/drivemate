@@ -779,7 +779,6 @@ const DONATE_EVERY = 30*864e5;
 let donateAsked=false; // at most once per app load
 const canDonate = () => !inClaude() && !!siteConfig.donate;
 const donorPaused = () => !!(account && account.donorUntil > Date.now());
-const fmtLongDate = ts => new Date(ts).toLocaleDateString("en-AU",{day:"numeric",month:"long",year:"numeric"});
 function maybeAskDonate(){
   if(donateAsked || !canDonate() || screenStack.length || S.live || donorPaused()) return;
   if(account){
@@ -794,15 +793,11 @@ function maybeAskDonate(){
 function donateSheet(reminder){
   const amts=[300,500,1000,2000];
   let amt=500;
-  const note = donorPaused() ? `Thanks for your support. Reminders are paused until ${fmtLongDate(account.donorUntil)}.`
-    : account ? "A donation of $5 or more turns these reminders off for 6 months."
-    : "Signed in to a DriveMate account, a donation of $5 or more turns these reminders off for 6 months.";
   sheet("Support DriveMate",`
     <p style="margin-top:12px">DriveMate is free, with no ads and no tracking. Donations pay for the servers that sign you in and keep your logbook synced.</p>
     <label>Choose an amount</label>
     <div class="chips" id="dAmts">${amts.map(a=>`<button class="chip" type="button" data-amt="${a}" aria-pressed="${a===amt}">$${a/100}</button>`).join("")}<button class="chip" type="button" data-amt="other" aria-pressed="false">Other</button></div>
     <div id="dOtherWrap" hidden><label for="dOther" style="margin-top:0">Amount in dollars (AUD)</label><input id="dOther" type="number" inputmode="decimal" min="1" max="1000" step="0.01" placeholder="e.g. 15"></div>
-    <p class="small muted">${esc(note)}</p>
     <div class="err" id="dErr"></div>
     <div class="actions"><button class="btn ghost" data-close>${reminder?"Not now":"Cancel"}</button><button class="btn road" id="dGo">Donate $5</button></div>
     <p class="legal">Payment is handled securely by Square. We never see your card details. Donations are voluntary and don't buy any extra features.</p>`,
@@ -834,13 +829,13 @@ function donateSheet(reminder){
 function donationConfirmed(wasPaused){
   const pending=+lsGet("dm.donatePending")||0;
   if(!pending) return;
-  if(donorPaused() && !wasPaused){ lsSet("dm.donatePending",null); toast("Thanks for donating! No more reminders for 6 months"); if(!screenStack.length) render(); }
+  if(donorPaused() && !wasPaused){ lsSet("dm.donatePending",null); toast("Thanks for donating!"); if(!screenStack.length) render(); }
   else if(Date.now()-pending > 7*864e5) lsSet("dm.donatePending",null);
 }
 function donatePanel(){
   if(!canDonate()) return "";
   return `<h2>Support DriveMate</h2><div class="panel">
-    <p class="small muted" style="margin-top:0">${donorPaused()?`Thanks for donating! Reminders are paused until ${esc(fmtLongDate(account.donorUntil))}.`:"DriveMate is free and ad-free. Donations keep the servers running."}</p>
+    <p class="small muted" style="margin-top:0">${donorPaused()?"Thanks for your support!":"DriveMate is free and ad-free. Donations keep the servers running."}</p>
     <button class="btn road block" id="donBtn">Donate</button></div>`;
 }
 
