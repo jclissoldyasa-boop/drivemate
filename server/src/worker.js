@@ -446,7 +446,19 @@ async function oauthCallback(req, env, url, provider) {
 
   let isNew = 0;
   let userId = (await env.DB.prepare("SELECT user_id FROM identities WHERE provider = ? AND subject = ?").bind(provider, subject).first("user_id"));
-  if (!userId && email) userId = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first("id");
+  if (!userId && email) {
+    // Accounts made with an email and password never proved they own that address (we can't send email),
+    // so someone could register another person's email first. Google/Facebook have verified the email, so
+    // when one is linked to such an account, its password and recovery code are removed and every session
+    // is ended: only the verified owner keeps access. They can set a new password in Setup.
+    userId = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first("id");
+    if (userId) {
+      await env.DB.batch([
+        env.DB.prepare("UPDATE users SET pass = '', recovery = '' WHERE id = ?").bind(userId),
+        env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
+      ]);
+    }
+  }
   if (!userId) {
     userId = crypto.randomUUID(); isNew = 1;
     const now = Date.now();
