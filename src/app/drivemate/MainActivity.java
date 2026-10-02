@@ -397,6 +397,17 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** Opens Android's share sheet with a line of text (the app's link). */
+        @JavascriptInterface public void share(String text) {
+            if (text == null || text.isEmpty()) return;
+            runOnUiThread(() -> {
+                Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                        .putExtra(Intent.EXTRA_SUBJECT, "DriveMate")
+                        .putExtra(Intent.EXTRA_TEXT, text);
+                try { startActivity(Intent.createChooser(send, "Share DriveMate")); } catch (ActivityNotFoundException ignored) {}
+            });
+        }
+
         /**
          * Reads the text on a receipt photo on the phone (ML Kit, via Google Play services; the photo
          * never leaves the device). Answers window.dmOcr(id, {lines:[{t,x,y,w,h}],w,h}) or
