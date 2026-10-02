@@ -15,6 +15,9 @@ const DOC_ID = /^(config|m-\d{4}-\d{2})$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TERMS_VERSION = "2026-10-01"; // bump when the Terms of Use or Privacy Policy change materially
 const REPORT_RETENTION = 730 * 864e5;
+const DONOR_PAUSE = 182 * 864e5;   // a $5+ donation pauses the donation reminder for about 6 months
+const DONOR_MIN = 500;             // cents
+const DONATION_CHECK = 7 * 864e5;  // keep asking Square about an unpaid donation for this long
 // Compared against when an email has no account, so a wrong email takes as long as a wrong password.
 const DUMMY_HASH = "pbkdf2$100000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -65,7 +68,12 @@ export default {
       env.DB.prepare("DELETE FROM attempts WHERE first < ?").bind(now - 864e5),
       env.DB.prepare("DELETE FROM login_codes WHERE created < ?").bind(now - 3600e3),
       env.DB.prepare("DELETE FROM reports WHERE created < ?").bind(now - REPORT_RETENTION),
+      env.DB.prepare("DELETE FROM donations WHERE paid IS NULL AND created < ?").bind(now - DONATION_CHECK),
     ]);
+    if (hasSquare(env)) {
+      const { results } = await env.DB.prepare("SELECT user_id FROM donations WHERE paid IS NULL GROUP BY user_id").all();
+      for (const r of results) await checkDonations(env, r.user_id).catch(e => console.error(e));
+    }
   },
 };
 
@@ -87,12 +95,13 @@ async function route(req, env, url) {
   const p = url.pathname, m = req.method;
   if (+(req.headers.get("Content-Length") || 0) > MAX_BODY) throw new HttpError(413, "That request is too large.");
 
-  if (p === "/api/config" && m === "GET") return json({ google: hasGoogle(env), facebook: hasFacebook(env), terms: TERMS_VERSION });
+  if (p === "/api/config" && m === "GET") return json({ google: hasGoogle(env), facebook: hasFacebook(env), donate: hasSquare(env), terms: TERMS_VERSION });
   if (p === "/api/signup" && m === "POST") return signup(req, env);
   if (p === "/api/login" && m === "POST") return login(req, env);
   if (p === "/api/reset" && m === "POST") return reset(req, env);
   if (p === "/api/report" && m === "POST") return report(req, env);
   if (p === "/api/oauth/exchange" && m === "POST") return oauthExchange(req, env);
+  if (p === "/api/donate" && m === "POST") return donate(req, env, url);
   const om = p.match(/^\/api\/oauth\/(google|facebook)\/(start|callback)$/);
   if (om && m === "GET") return om[2] === "start" ? oauthStart(env, url, om[1]) : oauthCallback(req, env, url, om[1]);
 
@@ -184,7 +193,8 @@ async function reset(req, env) {
 }
 
 async function me(env, user) {
-  const row = await env.DB.prepare("SELECT email, pass, terms_version FROM users WHERE id = ?").bind(user.id).first();
+  if (hasSquare(env)) await checkDonations(env, user.id).catch(e => console.error(e));
+  const row = await env.DB.prepare("SELECT email, pass, terms_version, donor_until FROM users WHERE id = ?").bind(user.id).first();
   const { results } = await env.DB.prepare("SELECT provider FROM identities WHERE user_id = ?").bind(user.id).all();
   return json({
     email: row.email.includes("@") ? row.email : null,
@@ -192,6 +202,7 @@ async function me(env, user) {
     providers: results.map(r => r.provider),
     termsAccepted: row.terms_version === TERMS_VERSION,
     terms: TERMS_VERSION,
+    donorUntil: row.donor_until || 0,
   });
 }
 
@@ -232,6 +243,7 @@ async function deleteAccount(req, env, user) {
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id),
     env.DB.prepare("DELETE FROM identities WHERE user_id = ?").bind(user.id),
     env.DB.prepare("DELETE FROM login_codes WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM donations WHERE user_id = ?").bind(user.id),
     env.DB.prepare("UPDATE reports SET account_email = NULL WHERE account_email = ?").bind(user.email),
     env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id),
   ]);
@@ -295,6 +307,85 @@ async function limit(env, key, max, windowMs, message) {
 }
 
 const ip = req => req.headers.get("CF-Connecting-IP") || "unknown";
+
+// ---------- Donations (Square) ----------
+//
+// /api/donate makes a Square payment link for the chosen amount and the page sends the donor there.
+// Signed-in donations are recorded by Square order id; /api/me (and the daily job) ask Square whether
+// they were paid, and a paid donation of $5 or more sets donor_until, which pauses the monthly reminder.
+// Card details only ever go to Square.
+
+const hasSquare = env => !!env.SQUARE_ACCESS_TOKEN;
+const squareBase = env => env.SQUARE_API_BASE /* local tests only */ || (env.SQUARE_ENV === "sandbox" ? "https://connect.squareupsandbox.com" : "https://connect.squareup.com");
+let squareLocation = null; // {id, currency}, looked up once per Worker instance
+
+async function square(env, path, body) {
+  const r = await fetch(squareBase(env) + path, {
+    method: body ? "POST" : "GET",
+    headers: { Authorization: "Bearer " + env.SQUARE_ACCESS_TOKEN, "Square-Version": "2025-01-23", "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`Square ${path} ${r.status}: ${JSON.stringify(j.errors || j).slice(0, 300)}`);
+  return j;
+}
+
+async function squareLoc(env) {
+  if (squareLocation) return squareLocation;
+  const { locations = [] } = await square(env, "/v2/locations");
+  const loc = locations.find(l => l.id === env.SQUARE_LOCATION_ID) || locations.find(l => l.status === "ACTIVE");
+  if (!loc) throw new Error("Square has no active location");
+  return squareLocation = { id: loc.id, currency: loc.currency || "AUD" };
+}
+
+async function donate(req, env, url) {
+  if (!hasSquare(env)) throw new HttpError(404, "Donations aren't set up yet.");
+  const user = req.headers.get("Authorization") ? await auth(req, env) : null;
+  await limit(env, "donate:" + ip(req), 20, 3600e3, "Too many tries. Please wait a while and try again.");
+  const amount = Math.round(+(await readJson(req)).amount);
+  if (!(amount >= 100 && amount <= 100000)) throw new HttpError(400, "Choose an amount from $1 to $1,000.");
+  const loc = await squareLoc(env);
+  let res;
+  try {
+    res = await square(env, "/v2/online-checkout/payment-links", {
+      idempotency_key: crypto.randomUUID(),
+      quick_pay: { name: "DriveMate donation", price_money: { amount, currency: loc.currency }, location_id: loc.id },
+      checkout_options: { redirect_url: `${url.origin}/?donated=1`, ask_for_shipping_address: false },
+      payment_note: "DriveMate donation",
+    });
+  } catch (e) {
+    console.error(e);
+    throw new HttpError(502, "Couldn't reach the payment service. Try again soon.");
+  }
+  const link = res.payment_link;
+  if (user) {
+    await env.DB.prepare("INSERT INTO donations (order_id, user_id, amount, currency, created) VALUES (?, ?, ?, ?, ?)")
+      .bind(link.order_id, user.id, amount, loc.currency, Date.now()).run();
+  }
+  return json({ url: link.url });
+}
+
+/** Asks Square about this user's unpaid donations from the last week and records any that were paid. */
+async function checkDonations(env, userId) {
+  const { results } = await env.DB.prepare("SELECT order_id FROM donations WHERE user_id = ? AND paid IS NULL AND created > ?")
+    .bind(userId, Date.now() - DONATION_CHECK).all();
+  for (const { order_id } of results) {
+    const { order } = await square(env, "/v2/orders/" + encodeURIComponent(order_id));
+    let paid = 0;
+    for (const t of order?.tenders || []) {
+      if (!t.payment_id) continue;
+      const { payment } = await square(env, "/v2/payments/" + encodeURIComponent(t.payment_id));
+      if (payment?.status === "COMPLETED") paid += payment.amount_money?.amount || 0;
+    }
+    if (!paid) continue;
+    const now = Date.now();
+    const stmts = [env.DB.prepare("UPDATE donations SET paid = ? WHERE order_id = ? AND user_id = ?").bind(paid, order_id, userId)];
+    if (paid >= DONOR_MIN) {
+      stmts.push(env.DB.prepare("UPDATE users SET donor_until = MAX(COALESCE(donor_until, 0), ?) WHERE id = ?").bind(now + DONOR_PAUSE, userId));
+    }
+    await env.DB.batch(stmts);
+  }
+}
 
 // ---------- Google / Facebook sign-in ----------
 //

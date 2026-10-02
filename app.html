@@ -523,7 +523,9 @@ const PROVIDER_ICONS={
 const providerName = p => p==="google"?"Google":p==="facebook"?"Facebook":"another";
 async function loadConfig(){
   if(inClaude()) return;
-  try{ siteConfig=await api("config"); if(!account && !screenStack.length) render(); }catch(e){}
+  try{ siteConfig=await api("config"); if((!account || (siteConfig.donate && tab==="setup")) && !screenStack.length) render(); }catch(e){ return; }
+  if(new URLSearchParams(location.search).has("donate")){ history.replaceState(null,"",location.pathname); if(canDonate()){ donateAsked=true; donateSheet(false); } }
+  maybeAskDonate();
 }
 function providerButtons(){
   const ps=["google","facebook"].filter(p=>siteConfig[p]);
@@ -563,8 +565,11 @@ async function refreshMe(){
   if(!account||inClaude()) return;
   try{
     const m=await api("me");
-    Object.assign(account,{email:m.email,hasPassword:m.hasPassword,providers:m.providers}); saveAuth(account);
+    const wasPaused=donorPaused();
+    Object.assign(account,{email:m.email,hasPassword:m.hasPassword,providers:m.providers,donorUntil:m.donorUntil||0}); saveAuth(account);
     if(!m.termsAccepted) termsSheet();
+    donationConfirmed(wasPaused);
+    maybeAskDonate();
   }catch(e){}
 }
 function termsSheet(){
@@ -765,6 +770,78 @@ function bindUpdate(){
   const g=$("#updGo"); if(g) g.onclick=installUpdate;
   const l=$("#updLater"); if(l) l.onclick=()=>{ lsSet("dm.updSkip",String(update.version)); render(); };
   const c=$("#updCheck"); if(c) c.onclick=()=>{ if(update) installUpdate(); else { c.textContent="Checking…"; checkUpdate(true); } };
+}
+
+/* ---------- donations ---------- */
+// Signed out: asked every time DriveMate opens. Signed in: asked once a month (starting a month after
+// first use), unless a donation of $5 or more, confirmed by the server with Square, has paused it for 6 months.
+const DONATE_EVERY = 30*864e5;
+let donateAsked=false; // at most once per app load
+const canDonate = () => !inClaude() && !!siteConfig.donate;
+const donorPaused = () => !!(account && account.donorUntil > Date.now());
+const fmtLongDate = ts => new Date(ts).toLocaleDateString("en-AU",{day:"numeric",month:"long",year:"numeric"});
+function maybeAskDonate(){
+  if(donateAsked || !canDonate() || screenStack.length || S.live || donorPaused()) return;
+  if(account){
+    if(account.donorUntil===undefined) return; // wait for /api/me
+    const last=+lsGet("dm.donateAsked")||0;
+    if(!last){ lsSet("dm.donateAsked",String(Date.now())); return; }
+    if(Date.now()-last < DONATE_EVERY) return;
+  }
+  donateAsked=true; lsSet("dm.donateAsked",String(Date.now()));
+  donateSheet(true);
+}
+function donateSheet(reminder){
+  const amts=[300,500,1000,2000];
+  let amt=500;
+  const note = donorPaused() ? `Thanks for your support. Reminders are paused until ${fmtLongDate(account.donorUntil)}.`
+    : account ? "A donation of $5 or more turns these reminders off for 6 months."
+    : "Signed in to a DriveMate account, a donation of $5 or more turns these reminders off for 6 months.";
+  sheet("Support DriveMate",`
+    <p style="margin-top:12px">DriveMate is free, with no ads and no tracking. Donations pay for the servers that sign you in and keep your logbook synced.</p>
+    <label>Choose an amount</label>
+    <div class="chips" id="dAmts">${amts.map(a=>`<button class="chip" type="button" data-amt="${a}" aria-pressed="${a===amt}">$${a/100}</button>`).join("")}<button class="chip" type="button" data-amt="other" aria-pressed="false">Other</button></div>
+    <div id="dOtherWrap" hidden><label for="dOther" style="margin-top:0">Amount in dollars (AUD)</label><input id="dOther" type="number" inputmode="decimal" min="1" max="1000" step="0.01" placeholder="e.g. 15"></div>
+    <p class="small muted">${esc(note)}</p>
+    <div class="err" id="dErr"></div>
+    <div class="actions"><button class="btn ghost" data-close>${reminder?"Not now":"Cancel"}</button><button class="btn road" id="dGo">Donate $5</button></div>
+    <p class="legal">Payment is handled securely by Square. We never see your card details. Donations are voluntary and don't buy any extra features.</p>`,
+  (root,close)=>{
+    const go=$("#dGo",root), other=$("#dOther",root), wrap=$("#dOtherWrap",root);
+    const cents=()=> amt==="other" ? Math.round(parseFloat(other.value)*100) : amt;
+    const label=()=>{ const c=cents(); go.textContent = c>0 ? `Donate $${(c/100).toFixed(c%100?2:0)}` : "Donate"; };
+    root.querySelectorAll("[data-amt]").forEach(b=>b.onclick=()=>{
+      amt = b.dataset.amt==="other" ? "other" : +b.dataset.amt;
+      root.querySelectorAll("[data-amt]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+      wrap.hidden = amt!=="other"; if(amt==="other") other.focus();
+      label();
+    });
+    other.oninput=label;
+    go.onclick=async()=>{
+      const c=cents();
+      if(!(c>=100 && c<=100000)){ $("#dErr",root).textContent="Choose an amount from $1 to $1,000."; return; }
+      $("#dErr",root).textContent=""; go.disabled=true; go.textContent="Opening Square…";
+      try{
+        const {url}=await api("donate",{method:"POST",body:{amount:c}});
+        if(account) lsSet("dm.donatePending",String(Date.now()));
+        close();
+        if(NATIVE){ try{ NATIVE.openUrl(url); }catch(e){} } else location.href=url;
+      }catch(e){ $("#dErr",root).textContent=e.message; go.disabled=false; label(); }
+    };
+  });
+}
+// After a donation, /api/me reports the new pause once Square confirms the payment.
+function donationConfirmed(wasPaused){
+  const pending=+lsGet("dm.donatePending")||0;
+  if(!pending) return;
+  if(donorPaused() && !wasPaused){ lsSet("dm.donatePending",null); toast("Thanks for donating! No more reminders for 6 months"); if(!screenStack.length) render(); }
+  else if(Date.now()-pending > 7*864e5) lsSet("dm.donatePending",null);
+}
+function donatePanel(){
+  if(!canDonate()) return "";
+  return `<h2>Support DriveMate</h2><div class="panel">
+    <p class="small muted" style="margin-top:0">${donorPaused()?`Thanks for donating! Reminders are paused until ${esc(fmtLongDate(account.donorUntil))}.`:"DriveMate is free and ad-free. Donations keep the servers running."}</p>
+    <button class="btn road block" id="donBtn">Donate</button></div>`;
 }
 
 /* ---------- error log ---------- */
@@ -1489,6 +1566,7 @@ function setup(){
   ${NATIVE?reminderPanel():""}
   ${NATIVE?autoPanel():webAutoPanel()}
   ${accountPanel()}
+  ${donatePanel()}
   ${helpPanel()}
   <h2>Data</h2>
   <div class="panel"><p class="small muted">${esc(syncState==="local"?"Saved on this phone":syncState)}.</p>
@@ -1503,6 +1581,7 @@ function bindSetup(){
   bindAccountPanel();
   bindUpdate();
   $("#bugBtn").onclick=bugSheet;
+  const dn=$("#donBtn"); if(dn) dn.onclick=()=>donateSheet(false);
   $("#errBtn").onclick=errorLogSheet;
   $("#addV").onclick=()=>vehSheet(null);
   document.querySelectorAll("[data-ev]").forEach(b=>b.onclick=()=>vehSheet(veh(b.dataset.ev)));
@@ -1625,9 +1704,11 @@ initCloud();
 loadConfig();
 storageNotice();
 if(location.pathname==="/auth/done") authReturn();
+if(new URLSearchParams(location.search).has("donated")){ history.replaceState(null,"",location.pathname); donateAsked=true; toast("Thank you for supporting DriveMate!"); }
 checkUpdate(false).then(()=>{ if(update&&!screenStack.length) render(); });
 document.addEventListener("visibilitychange",()=>{
   if(document.hidden || inClaude() || !account) return;
+  if(lsGet("dm.donatePending")) refreshMe();
   if(!cloud || hasPending()) initCloud();
   else if(!screenStack.length) connect(accountStore,"me").then(()=>{ if(!screenStack.length) render(); }).catch(()=>{});
 });
