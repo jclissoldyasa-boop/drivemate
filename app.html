@@ -57,6 +57,10 @@ button{cursor:pointer}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:12px;padding:12px 18px;min-height:50px;font-weight:700;background:var(--ink);color:var(--surface)}
 .btn.road{background:var(--grad);color:var(--road-ink)}
 .btn.biz{background:var(--grad);color:var(--road-ink)}
+.btn.give{background:linear-gradient(135deg,#FFD166,#FF9F43);color:#2A1700}
+.btn.give svg{width:18px;height:18px;fill:currentColor;flex:0 0 auto}
+.give-foot{margin:28px 0 8px;text-align:center}
+.give-foot p{margin:0 0 10px}
 .btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
 .btn.danger{background:transparent;color:var(--warn);border:1.5px solid var(--warn)}
 .btn.block{width:100%}
@@ -528,7 +532,7 @@ const PROVIDER_ICONS={
 const providerName = p => p==="google"?"Google":p==="facebook"?"Facebook":"another";
 async function loadConfig(){
   if(inClaude()) return;
-  try{ siteConfig=await api("config"); if((!account || (siteConfig.donate && tab==="setup")) && !screenStack.length) render(); }catch(e){ return; }
+  try{ siteConfig=await api("config"); if((!account || (siteConfig.donate && (tab==="setup"||tab==="drive"))) && !screenStack.length) render(); }catch(e){ return; }
   if(new URLSearchParams(location.search).has("donate")){ history.replaceState(null,"",location.pathname); if(canDonate()){ donateAsked=true; donateSheet(false); } }
   maybeAskDonate();
 }
@@ -804,7 +808,7 @@ function donateSheet(reminder){
     <div class="chips" id="dAmts">${amts.map(a=>`<button class="chip" type="button" data-amt="${a}" aria-pressed="${a===amt}">$${a/100}</button>`).join("")}<button class="chip" type="button" data-amt="other" aria-pressed="false">Other</button></div>
     <div id="dOtherWrap" hidden><label for="dOther" style="margin-top:0">Amount in dollars (AUD)</label><input id="dOther" type="number" inputmode="decimal" min="1" max="1000" step="0.01" placeholder="e.g. 15"></div>
     <div class="err" id="dErr"></div>
-    <div class="actions"><button class="btn ghost" data-close>${reminder?"Not now":"Cancel"}</button><button class="btn road" id="dGo">Donate $5</button></div>
+    <div class="actions"><button class="btn ghost" data-close>${reminder?"Not now":"Cancel"}</button><button class="btn give" id="dGo">Donate $5</button></div>
     <p class="legal">Payment is handled securely by Square. We never see your card details. Donations are voluntary and don't buy any extra features.</p>`,
   (root,close)=>{
     const go=$("#dGo",root), other=$("#dOther",root), wrap=$("#dOtherWrap",root);
@@ -841,7 +845,12 @@ function donatePanel(){
   if(!canDonate()) return "";
   return `<h2>Support DriveMate</h2><div class="panel">
     <p class="small muted" style="margin-top:0">${donorPaused()?"Thanks for your support!":"DriveMate is free and ad-free. Donations keep the servers running."}</p>
-    <button class="btn road block" id="donBtn">Donate</button></div>`;
+    <button class="btn give block" id="donBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-10-9.3C.3 8.4 2.2 4 6.2 4c2.3 0 3.8 1.3 4.8 2.8C12 5.3 13.5 4 15.8 4c4 0 5.9 4.4 4.2 7.7C19.5 16.4 12 21 12 21z"/></svg>Donate</button></div>`;
+}
+function donateFoot(){
+  if(!canDonate() || S.live) return "";
+  return `<div class="give-foot"><p class="small muted">${donorPaused()?"Thanks for supporting DriveMate!":"DriveMate is free and ad-free. Help keep it running."}</p>
+    <button class="btn give block" id="donFoot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-10-9.3C.3 8.4 2.2 4 6.2 4c2.3 0 3.8 1.3 4.8 2.8C12 5.3 13.5 4 15.8 4c4 0 5.9 4.4 4.2 7.7C19.5 16.4 12 21 12 21z"/></svg>Support DriveMate</button></div>`;
 }
 
 /* ---------- error log ---------- */
@@ -979,11 +988,13 @@ function drive(){
     <div class="stat"><div class="v">${pct(c.pctBiz)}</div><div class="k">Business use</div></div>
     <div class="stat"><div class="v">${money(c.deduction)}</div><div class="k">Deduction (${methodName(c.best)})</div></div>
     <div class="stat big"><div class="v">${money(c.saving)}</div><div class="k">Estimated tax saving</div></div>
-  </div></div>`;
+  </div></div>
+  ${donateFoot()}`;
 }
 function recentPurposes(){ const seen=[]; S.trips.slice().sort((a,b)=>b.startTs-a.startTs).forEach(t=>{ if(t.type==="business"&&t.purpose&&!seen.includes(t.purpose)&&seen.length<4) seen.push(t.purpose); }); return seen; }
 function bindDrive(){
   bindUpdate();
+  const df=$("#donFoot"); if(df) df.onclick=()=>donateSheet(false);
   document.querySelectorAll("[data-veh]").forEach(b=>b.onclick=()=>{ S.settings.active=b.dataset.veh; persist(); render(); });
   const s=$("#start"); if(s) s.onclick=()=>startTrip(activeVeh().id);
   const ap=$("#addPast"); if(ap) ap.onclick=()=>tripSheet(null);
