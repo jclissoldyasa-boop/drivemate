@@ -408,7 +408,7 @@ async function oauthStart(env, url, provider) {
   if (provider === "google") {
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
     to = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID, redirect_uri: redirect, response_type: "code", scope: "openid email",
+      client_id: env.GOOGLE_CLIENT_ID, redirect_uri: redirect, response_type: "code", scope: "openid email profile",
       state, code_challenge: challenge, code_challenge_method: "S256", prompt: "select_account",
     });
   } else {
@@ -436,9 +436,9 @@ async function oauthCallback(req, env, url, provider) {
   const code = url.searchParams.get("code");
   if (!code) return done("error=cancelled", st.app);
   const redirect = `${url.origin}/api/oauth/${provider}/callback`;
-  let subject, email;
+  let subject, email, name;
   try {
-    ({ subject, email } = provider === "google" ? await googleUser(env, code, redirect, st.v) : await facebookUser(env, code, redirect));
+    ({ subject, email, name } = provider === "google" ? await googleUser(env, code, redirect, st.v) : await facebookUser(env, code, redirect));
   } catch (e) {
     console.error("oauth", provider, e.message);
     return done("error=failed", st.app);
@@ -466,7 +466,7 @@ async function oauthCallback(req, env, url, provider) {
     // By continuing with Google/Facebook the person agrees to the terms (stated next to the buttons).
     await env.DB.prepare("INSERT INTO users (id, email, pass, recovery, created, terms_version, terms_accepted) VALUES (?, ?, '', '', ?, ?, ?)")
       .bind(userId, email || `${provider}:${subject}`, now, TERMS_VERSION, now).run();
-    await notifySignup(env, provider);
+    await notifySignup(env, provider, name);
   }
   await env.DB.prepare("INSERT OR IGNORE INTO identities (provider, subject, user_id, created) VALUES (?, ?, ?, ?)")
     .bind(provider, subject, userId, Date.now()).run();
@@ -486,7 +486,7 @@ async function googleUser(env, code, redirect, verifier) {
   // The ID token came straight from Google's token endpoint over TLS, so its signature needn't be re-checked (OIDC 3.1.3.7).
   const claims = JSON.parse(new TextDecoder().decode(unb64url(j.id_token.split(".")[1])));
   if (claims.aud !== env.GOOGLE_CLIENT_ID || !/^(https:\/\/)?accounts\.google\.com$/.test(claims.iss)) throw new Error("google claims");
-  return { subject: String(claims.sub), email: claims.email && claims.email_verified ? normEmail(claims.email) : null };
+  return { subject: String(claims.sub), email: claims.email && claims.email_verified ? normEmail(claims.email) : null, name: claims.name || "" };
 }
 
 async function facebookUser(env, code, redirect) {
@@ -494,10 +494,10 @@ async function facebookUser(env, code, redirect) {
   const tj = await t.json();
   if (!t.ok || !tj.access_token) throw new Error("facebook token " + t.status);
   const proof = await hmacHex(env.FACEBOOK_APP_SECRET, tj.access_token);
-  const u = await fetch(`${FB}/me?` + new URLSearchParams({ fields: "id,email", access_token: tj.access_token, appsecret_proof: proof }));
+  const u = await fetch(`${FB}/me?` + new URLSearchParams({ fields: "id,email,name", access_token: tj.access_token, appsecret_proof: proof }));
   const uj = await u.json();
   if (!u.ok || !uj.id) throw new Error("facebook me " + u.status);
-  return { subject: String(uj.id), email: uj.email ? normEmail(uj.email) : null }; // Facebook only returns confirmed emails
+  return { subject: String(uj.id), email: uj.email ? normEmail(uj.email) : null, name: uj.name || "" }; // Facebook only returns confirmed emails
 }
 
 async function oauthExchange(req, env) {
@@ -551,8 +551,8 @@ async function openIssue(env, id, message, diag) {
   } catch (e) { console.error(e); return `not sent: ${e.message}`; }
 }
 
-/** Pushes a "new account" alert to the owner's phone via ntfy when NTFY_TOPIC is set. No personal details are sent. */
-async function notifySignup(env, method) {
+/** Pushes a "new account" alert to the owner's phone via ntfy when NTFY_TOPIC is set. Only the name Google/Facebook gave is included. */
+async function notifySignup(env, method, name = "") {
   if (!env.NTFY_TOPIC) return;
   try {
     const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first("n");
@@ -560,7 +560,7 @@ async function notifySignup(env, method) {
     await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
       method: "POST", signal: AbortSignal.timeout(3000),
       headers: { Title: "New DriveMate account", Tags: "car" },
-      body: `Someone signed up with ${how}. ${total} account${total === 1 ? "" : "s"} in total.`,
+      body: `${String(name).slice(0, 80) || "Someone"} signed up with ${how}. ${total} account${total === 1 ? "" : "s"} in total.`,
     });
   } catch (e) { console.error("ntfy", e); }
 }
