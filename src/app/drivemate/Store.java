@@ -45,6 +45,46 @@ final class Store {
         return c.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
+    // ---------- error log: kept on the phone until the page collects it ----------
+
+    private static final int LOG_MAX = 30;
+
+    /** Records an error so it shows in the page's error log (Setup → Help). Safe to call from any thread. */
+    static synchronized void log(Context c, String where, Throwable t) {
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(prefs(c).getString("errlog", "[]"));
+            java.io.StringWriter sw = new java.io.StringWriter();
+            t.printStackTrace(new java.io.PrintWriter(sw));
+            String stack = sw.toString();
+            a.put(new org.json.JSONObject().put("ts", System.currentTimeMillis()).put("src", "Android: " + where)
+                    .put("msg", t.getClass().getSimpleName() + ": " + t.getMessage())
+                    .put("detail", stack.length() > 1500 ? stack.substring(0, 1500) : stack));
+            while (a.length() > LOG_MAX) a.remove(0);
+            prefs(c).edit().putString("errlog", a.toString()).commit(); // commit: we may be about to crash
+        } catch (Exception ignored) {}
+    }
+
+    /** Hands the logged errors to the page and clears them here. */
+    static synchronized String takeLog(Context c) {
+        String s = prefs(c).getString("errlog", "[]");
+        prefs(c).edit().remove("errlog").apply();
+        return s;
+    }
+
+    private static boolean crashHook;
+
+    /** Logs any crash before Android closes the app. */
+    static synchronized void installCrashLog(Context c) {
+        if (crashHook) return;
+        crashHook = true;
+        final Context app = c.getApplicationContext();
+        final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((th, e) -> {
+            log(app, "crash", e);
+            if (prev != null) prev.uncaughtException(th, e);
+        });
+    }
+
     static boolean hasBluetooth(Context c) {
         return android.os.Build.VERSION.SDK_INT < 31
                 || c.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;

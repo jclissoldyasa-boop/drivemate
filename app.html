@@ -89,6 +89,11 @@ input[type=checkbox]{width:auto}
 .quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .quick button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 11px;font-size:14px}
 .list{list-style:none;margin:0;padding:0}
+.errlist li{border-bottom:1px solid var(--line);padding:10px 2px}
+.errlist summary{cursor:pointer;display:grid;gap:2px;list-style:none}
+.errlist summary::-webkit-details-marker{display:none}
+.errmsg{word-break:break-word}
+.errlist pre{white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0 4px;max-height:240px;overflow:auto}
 .vpic{display:block;object-fit:cover;border-radius:10px}
 .chip{display:inline-flex;align-items:center;gap:6px}
 .chip-pic{display:inline-flex;margin-left:-6px}.chip-pic .vpic{border-radius:50%;width:24px;height:24px}
@@ -239,6 +244,7 @@ async function pushCloud(store=cloud,id=me){
     }
     savePending(); setSync(savedLabel());
   }catch(e){
+    if(!isOffline(e)) logError("Sync",e&&e.message||e,e&&e.stack);
     if(cfgWas) dirtyCfg=true; months.forEach(m=>dirtyMonths.add(m)); savePending();
     setSync("Saved on this phone · syncs when online");
     clearTimeout(retryTimer); retryTimer=setTimeout(()=>pushCloud(),30000);
@@ -433,6 +439,7 @@ function syncFromNative(){
   }
 }
 window.dmNative=function(evt,arg){
+  if(evt==="resume") collectNativeErrors();
   syncFromNative();
   if(evt==="odo"){ closeAllScreens(); tab="drive"; render(); if(veh(arg)) odoSheet(null,arg); return; }
   if(evt==="end" && S.live){ closeAllScreens(); tab="drive"; render(); endTripSheet(); return; }
@@ -760,14 +767,59 @@ function bindUpdate(){
   const c=$("#updCheck"); if(c) c.onclick=()=>{ if(update) installUpdate(); else { c.textContent="Checking…"; checkUpdate(true); } };
 }
 
+/* ---------- error log ---------- */
+// Kept on this device (not synced) so problems can be checked later from Setup → Help, and sent with a report.
+const ERRLOG="dm.errlog", ERRLOG_MAX=100;
+function errLog(){ try{ return JSON.parse(lsGet(ERRLOG)||"[]"); }catch(e){ return []; } }
+function logError(src,msg,detail){
+  try{
+    const log=errLog(), last=log[log.length-1]; msg=String(msg||"Unknown error").slice(0,300);
+    // The same error again within 10 minutes just bumps a counter.
+    if(last && last.src===src && last.msg===msg && Date.now()-last.ts<6e5){ last.n=(last.n||1)+1; last.ts=Date.now(); }
+    else log.push({ts:Date.now(),src,msg,detail:String(detail||"").slice(0,1500),ver:NATIVE?appVersion():"web"});
+    lsSet(ERRLOG,JSON.stringify(log.slice(-ERRLOG_MAX)));
+  }catch(e){}
+}
+window.addEventListener("error",e=>logError("Page",e.message,`${e.filename||""}:${e.lineno||"?"}:${e.colno||"?"}\n${e.error&&e.error.stack||""}`));
+window.addEventListener("unhandledrejection",e=>{ const r=e.reason; logError("Page",r&&r.message||String(r),r&&r.stack||""); });
+// Pick up anything the Android side logged (crashes, the background trip service).
+function collectNativeErrors(){
+  if(!NATIVE||typeof NATIVE.takeErrors!=="function") return;
+  let list=[]; try{ list=JSON.parse(NATIVE.takeErrors()); }catch(e){ return; }
+  if(!list.length) return;
+  const log=errLog().concat(list.map(x=>({ts:+x.ts||Date.now(),src:String(x.src||"Android"),msg:String(x.msg||"").slice(0,300),detail:String(x.detail||"").slice(0,1500),ver:appVersion()})));
+  log.sort((a,b)=>a.ts-b.ts); lsSet(ERRLOG,JSON.stringify(log.slice(-ERRLOG_MAX)));
+}
+const isOffline=e=>!navigator.onLine || /failed to fetch|network|load failed|timed? ?out/i.test(String(e&&e.message||e));
+function errText(list){
+  return list.map(x=>`${new Date(x.ts).toLocaleString("en-AU")} · ${x.src}${x.n>1?` (×${x.n})`:""} · ${x.ver}\n${x.msg}${x.detail?"\n"+x.detail:""}`).join("\n\n");
+}
+function errorLogSheet(){
+  const list=errLog().slice().reverse();
+  sheet("Error log",`
+    <p class="muted small" style="margin-top:12px">Problems DriveMate ran into on this ${NATIVE?"phone":"device"}, newest first. Nothing here is sent unless you tap Send to developer.</p>
+    ${list.length?`<ul class="list errlist">${list.map(x=>`<li><details><summary><span class="small muted">${esc(new Date(x.ts).toLocaleString("en-AU",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"}))} · ${esc(x.src)}${x.n>1?` · ×${x.n}`:""}</span><span class="errmsg">${esc(x.msg)}</span></summary>${x.detail?`<pre>${esc(x.detail)}</pre>`:`<p class="small muted">No more detail.</p>`}<p class="small muted">Version ${esc(x.ver)}</p></details></li>`).join("")}</ul>`
+      :`<div class="empty">No errors recorded. If something goes wrong, it will show up here.</div>`}
+    ${list.length?`<button class="btn block" id="elSend" style="margin-top:14px">Send to developer</button>
+    <div class="duo" style="margin-top:10px"><button class="btn ghost" id="elCopy">Copy log</button><button class="btn danger" id="elClear">Clear log</button></div>`:""}
+    <div class="err" id="elErr"></div>`,
+  (root,close)=>{
+    const c=$("#elCopy",root); if(c) c.onclick=async()=>{ try{ await navigator.clipboard.writeText(errText(errLog())); toast("Error log copied"); }catch(e){ toast("Copy isn't available here"); } };
+    const x=$("#elClear",root); if(x) x.onclick=async()=>{ if(!await ask("Clear the error log?","Clear log")) return; lsSet(ERRLOG,null); close(); render(); toast("Error log cleared"); };
+    const snd=$("#elSend",root); if(snd) snd.onclick=async()=>{
+      snd.disabled=true; snd.textContent="Sending…";
+      const body=errText(errLog().slice(-20).reverse()).slice(0,4600);
+      try{ await api("report",{method:"POST",body:{message:"Error log sent from Setup\n\n"+body,contact:"",diag:diagnostics()}}); toast("Error log sent. Thanks"); close(); }
+      catch(e){ $("#elErr",root).textContent=e.message; snd.disabled=false; snd.textContent="Send to developer"; }
+    };
+  });
+}
+
 /* ---------- help: bug reports ---------- */
-const recentErrors=[];
-window.addEventListener("error",e=>{ recentErrors.push(`${e.message} @${e.lineno||"?"}`); if(recentErrors.length>5) recentErrors.shift(); });
-window.addEventListener("unhandledrejection",e=>{ recentErrors.push("Promise: "+String(e.reason&&e.reason.message||e.reason)); if(recentErrors.length>5) recentErrors.shift(); });
 function diagnostics(){
   const d={ app: NATIVE?`Android app ${appVersion()}`:inClaude()?"claude.ai":"Web", device: navigator.userAgent, screen:`${innerWidth}×${innerHeight}`,
     account: inClaude()?"claude.ai":account?"signed in":"none", sync: syncState, vehicles: S.vehicles.length, trips: S.trips.length,
-    expenses: S.expenses.length, tripInProgress: !!S.live, tab, errors: recentErrors.length?recentErrors.join(" | "):"none" };
+    expenses: S.expenses.length, tripInProgress: !!S.live, tab, errors: (l=>l.length?l.map(x=>x.msg).join(" | "):"none")(errLog().slice(-5)) };
   if(NATIVE){ try{ d.native=nState(); d.permissions=nPerms(); }catch(e){} }
   return d;
 }
@@ -776,6 +828,7 @@ function helpPanel(){
     ${NATIVE&&UPDATE_REPO?`<div class="kv"><span>App version</span><b>${appVersion()}</b></div>
     <button class="btn ${update?"road":"ghost"} block" id="updCheck" style="margin-top:12px">${update?"Install update":"Check for updates"}</button>`:""}
     <button class="btn ghost block" id="bugBtn" style="margin-top:${NATIVE&&UPDATE_REPO?10:0}px">Report a problem</button>
+    ${(n=>`<div class="kv" style="margin-top:12px"><span>Error log<br><span class="small muted">${n?`${n} recorded on this ${NATIVE?"phone":"device"}`:"No errors recorded"}</span></span><button class="linkbtn" id="errBtn">View</button></div>`)(errLog().length)}
     <p class="legal" style="margin-bottom:0"><a href="/privacy">Privacy Policy</a> · <a href="/terms">Terms of Use</a> · <a href="mailto:j.clissoldyasa@gmail.com">Contact us</a></p></div>`;
 }
 function bugSheet(){
@@ -1140,7 +1193,7 @@ async function uploadReceipt(blob){
     if(assetsNs===undefined) assetsNs = (window.claude&&claude.use) ? await claude.use("assets") : null;
     if(!assetsNs) return null;
     const r=await assetsNs.upload(blob); return r&&r.id||null;
-  }catch(e){ return null; }
+  }catch(e){ logError("Receipt photo",e&&e.message||e,e&&e.stack); return null; }
 }
 
 /* ---------- report ---------- */
@@ -1235,7 +1288,7 @@ function summaryText(){
 }
 async function exportCsv(text,filename){ return exportFile(text,filename,"text/csv"); }
 async function exportFile(text,filename,mime){
-  if(NATIVE){ let r="error"; try{ r=NATIVE.saveFile(filename,text,mime); }catch(e){} toast(r==="saved"?`Saved to Downloads: ${filename}`:r==="shared"?"Choose where to save it":"Couldn't save the file"); return; }
+  if(NATIVE){ let r="error"; try{ r=NATIVE.saveFile(filename,text,mime); }catch(e){ logError("Save file",e&&e.message||e,filename); } if(r==="error") logError("Save file","Couldn't save "+filename+" to Downloads",""); toast(r==="saved"?`Saved to Downloads: ${filename}`:r==="shared"?"Choose where to save it":"Couldn't save the file"); return; }
   let dl=null; try{ if(window.claude&&claude.use) dl=await claude.use("downloads"); }catch(e){}
   if(dl){ try{ await dl.save({filename,data:new Blob([text],{type:mime})}); return; }catch(e){ if(e&&e.code==="declined"||e&&e.code==="cancelled") return; } }
   try{ await navigator.clipboard.writeText(text); toast("Download isn't available here — copied instead"); }catch(e){ toast("Download isn't available in this view"); }
@@ -1299,7 +1352,7 @@ function bindVehPic(){
   $("#vpicUp").onclick=()=>$("#vpicFile").click();
   $("#vpicFile").onchange=async e=>{
     const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
-    try{ pic={kind:"photo",data:await shrinkPhoto(f)}; show(); }catch(err){ toast("Couldn't read that photo"); }
+    try{ pic={kind:"photo",data:await shrinkPhoto(f)}; show(); }catch(err){ logError("Vehicle photo",err&&err.message||"Couldn't read the photo",f.type+" "+f.size+" bytes"); toast("Couldn't read that photo"); }
   };
   show();
 }
@@ -1450,6 +1503,7 @@ function bindSetup(){
   bindAccountPanel();
   bindUpdate();
   $("#bugBtn").onclick=bugSheet;
+  $("#errBtn").onclick=errorLogSheet;
   $("#addV").onclick=()=>vehSheet(null);
   document.querySelectorAll("[data-ev]").forEach(b=>b.onclick=()=>vehSheet(veh(b.dataset.ev)));
   $("#tr").onchange=e=>{ S.settings.taxRate=+e.target.value; persist(); };
@@ -1554,7 +1608,7 @@ new MutationObserver(()=>document.querySelectorAll("input.odo").forEach(enhanceO
 /* ---------- boot ---------- */
 loadLocal();
 $("#brand").innerHTML=`<img src="${LOGO}" alt=""><span class="wm"><b>Drive</b><i>Mate</i></span>`;
-if(NATIVE) syncFromNative(); else if(S.live) startGps();
+if(NATIVE){ collectNativeErrors(); syncFromNative(); } else if(S.live) startGps();
 (function handleLaunch(){
   let p=null, e=null;
   try{

@@ -54,13 +54,15 @@ public class TrackerService extends Service implements LocationListener {
         Intent i = new Intent(c, TrackerService.class).setAction(action);
         try {
             if (needed) c.startForegroundService(i); else c.startService(i);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            Store.log(c, "starting the trip service", e);
             // Not allowed to start from the background right now; the activity retries on resume.
         }
     }
 
     @Override public void onCreate() {
         super.onCreate();
+        Store.installCrashLog(this);
         lm = (LocationManager) getSystemService(LOCATION_SERVICE);
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("trip", "Trip in progress", NotificationManager.IMPORTANCE_LOW));
@@ -92,6 +94,7 @@ public class TrackerService extends Service implements LocationListener {
             startForeground(NOTE_ONGOING, ongoing(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
         } catch (Exception e) {
             // Location permission missing: nothing useful can run until it is granted.
+            Store.log(this, "showing the trip notification", e);
             stopSelf();
             return;
         }
@@ -117,7 +120,9 @@ public class TrackerService extends Service implements LocationListener {
                 autoCancel = () -> autoCancelCheck(ts);
                 main.postDelayed(autoCancel, AUTO_CANCEL_MS);
             }
-        } catch (SecurityException ignored) {}
+        } catch (SecurityException e) {
+            Store.log(this, "starting GPS", e);
+        }
     }
 
     private void stopGps() {

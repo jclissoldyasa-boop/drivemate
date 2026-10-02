@@ -55,6 +55,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        Store.installCrashLog(this);
         current = new WeakReference<>(this);
         web = new WebView(this);
         web.setBackgroundColor(0xFF0F121C);
@@ -325,6 +326,8 @@ public class MainActivity extends Activity {
                 requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, REQ_BT);
             });
         }
+
+        @JavascriptInterface public String takeErrors() { return Store.takeLog(MainActivity.this); }
 
         @JavascriptInterface public void setReminder(String json) {
             try { new JSONObject(json); } catch (Exception e) { return; }
