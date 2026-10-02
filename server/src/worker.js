@@ -69,7 +69,10 @@ export default {
       env.DB.prepare("DELETE FROM login_codes WHERE created < ?").bind(now - 3600e3),
       env.DB.prepare("DELETE FROM reports WHERE created < ?").bind(now - REPORT_RETENTION),
       env.DB.prepare("DELETE FROM donations WHERE paid IS NULL AND created < ?").bind(now - DONATION_CHECK),
+      env.DB.prepare("DELETE FROM signup_log WHERE created < ?").bind(now - 8 * 864e5),
     ]);
+    // Runs at 16:17 UTC, which is early Monday morning in Melbourne when it's Sunday in UTC.
+    if (new Date(now).getUTCDay() === 0) await weeklySignups(env, now).catch(e => console.error("weekly", e));
     if (hasSquare(env)) {
       const { results } = await env.DB.prepare("SELECT user_id FROM donations WHERE paid IS NULL GROUP BY user_id").all();
       for (const r of results) await checkDonations(env, r.user_id).catch(e => console.error(e));
@@ -555,6 +558,7 @@ async function openIssue(env, id, message, diag) {
 async function notifySignup(env, method, name = "") {
   if (!env.NTFY_TOPIC) return;
   try {
+    await env.DB.prepare("INSERT INTO signup_log (created, method, name) VALUES (?, ?, ?)").bind(Date.now(), method, String(name).slice(0, 80)).run();
     const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first("n");
     const how = { email: "email + password", google: "Google sign-in", facebook: "Facebook sign-in" }[method] || method;
     await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
@@ -563,6 +567,20 @@ async function notifySignup(env, method, name = "") {
       body: `${String(name).slice(0, 80) || "Someone"} signed up with ${how}. ${total} account${total === 1 ? "" : "s"} in total.`,
     });
   } catch (e) { console.error("ntfy", e); }
+}
+
+/** Monday-morning summary of the past week's new accounts, posted to the same ntfy topic. */
+async function weeklySignups(env, now) {
+  if (!env.NTFY_TOPIC) return;
+  const { results } = await env.DB.prepare("SELECT method, name FROM signup_log WHERE created >= ? ORDER BY created").bind(now - 7 * 864e5).all();
+  const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first("n");
+  const how = { email: "email", google: "Google", facebook: "Facebook" };
+  const lines = results.map(r => `- ${r.name || "Someone"} (${how[r.method] || r.method})`);
+  await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
+    method: "POST", signal: AbortSignal.timeout(3000),
+    headers: { Title: "DriveMate weekly signups", Tags: "car,calendar" },
+    body: `${results.length} new account${results.length === 1 ? "" : "s"} in the last 7 days. ${total} in total.${lines.length ? "\n" + lines.join("\n") : ""}`,
+  });
 }
 
 // ---------- crypto helpers ----------
