@@ -287,6 +287,9 @@ public class MainActivity extends Activity {
                         .put("auto", Store.auto(c))
                         .put("discardedTs", Store.prefs(c).getLong("discardedTs", 0))
                         .put("vid", Store.prefs(c).getString("tripVid", ""))
+                        .put("endedTs", Store.prefs(c).getLong("endedTs", 0))
+                        .put("endedAt", Store.prefs(c).getLong("endedAt", 0))
+                        .put("endedKm", Store.prefs(c).getFloat("endedKm", 0f))
                         .toString();
             } catch (Exception e) { return "{}"; }
         }
@@ -340,6 +343,10 @@ public class MainActivity extends Activity {
                 askedAt = SystemClock.elapsedRealtime();
                 requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, REQ_BT);
             });
+        }
+
+        @JavascriptInterface public void setIdle(int minutes) {
+            Store.prefs(MainActivity.this).edit().putInt("idleMin", Math.max(0, minutes)).apply();
         }
 
         @JavascriptInterface public String takeErrors() { return Store.takeLog(MainActivity.this); }

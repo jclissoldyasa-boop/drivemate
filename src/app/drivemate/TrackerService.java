@@ -33,9 +33,14 @@ import java.util.Locale;
 public class TrackerService extends Service implements LocationListener {
     static final String ACTION_SYNC = "sync";            // bring the service in line with Store
     static final String ACTION_DISCARD = "discard";      // cancel the current trip
-    private static final int NOTE_ONGOING = 1, NOTE_ARRIVED = 2;
+    static final String ACTION_KEEP = "keep";            // "Keep driving" on the arrival alert
+    private static final int NOTE_ONGOING = 1, NOTE_ARRIVED = 2, NOTE_ENDED = 3;
     private static final long AUTO_CANCEL_MS = 10 * 60 * 1000;
     private static final double AUTO_MIN_KM = 0.3;
+    /** Moving this far from where the phone last sat counts as driving again (GPS drift stays well under it). */
+    private static final double IDLE_MOVE_KM = 0.2;
+    /** The arrival alert repeats this long after the first one while the trip is still running. */
+    private static final long[] ARRIVED_REPEAT_MS = { 3 * 60 * 1000, 6 * 60 * 1000 };
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private LocationManager lm;
@@ -44,6 +49,12 @@ public class TrackerService extends Service implements LocationListener {
     private long lastNoteAt;
     private PowerManager.WakeLock wake;
     private Runnable autoCancel;
+    private Location idleAnchor;
+    private final Runnable idleCheck = new Runnable() {
+        @Override public void run() { checkIdle(); if (gpsOn) main.postDelayed(this, 60 * 1000); }
+    };
+    private final Runnable arrivedRepeat = this::arrivedAgain;
+    private int arrivedCount;
 
     static void sync(Context c) { send(c, ACTION_SYNC); }
 
@@ -66,7 +77,13 @@ public class TrackerService extends Service implements LocationListener {
         lm = (LocationManager) getSystemService(LOCATION_SERVICE);
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("trip", "Trip in progress", NotificationManager.IMPORTANCE_LOW));
-        nm.createNotificationChannel(new NotificationChannel("arrived", "Arrival reminders", NotificationManager.IMPORTANCE_HIGH));
+        nm.deleteNotificationChannel("arrived"); // replaced by "tripend": a channel's sound and vibration can't change once made
+        NotificationChannel end = new NotificationChannel("tripend", "Arrival alerts", NotificationManager.IMPORTANCE_HIGH);
+        end.setDescription("When the phone leaves the wireless charger or the car's Bluetooth disconnects during a trip");
+        end.enableVibration(true);
+        end.setVibrationPattern(new long[] { 0, 600, 250, 600, 250, 600 });
+        nm.createNotificationChannel(end);
+        nm.createNotificationChannel(new NotificationChannel("ended", "Trips ended automatically", NotificationManager.IMPORTANCE_DEFAULT));
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -75,6 +92,7 @@ public class TrackerService extends Service implements LocationListener {
             Store.endTrip(this, true);
             MainActivity.ping("discard");
         }
+        if (ACTION_KEEP.equals(action)) cancelArrived();
         apply();
         return START_STICKY;
     }
@@ -111,6 +129,9 @@ public class TrackerService extends Service implements LocationListener {
             lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 0, this, Looper.getMainLooper());
             gpsOn = true;
             anchor = null;
+            idleAnchor = null;
+            main.removeCallbacks(idleCheck);
+            main.postDelayed(idleCheck, 60 * 1000);
             if (wake == null) {
                 wake = ((PowerManager) getSystemService(POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DriveMate:trip");
                 wake.acquire(12 * 60 * 60 * 1000L);
@@ -129,9 +150,62 @@ public class TrackerService extends Service implements LocationListener {
         if (gpsOn) { try { lm.removeUpdates(this); } catch (Exception ignored) {} }
         gpsOn = false;
         anchor = null;
+        idleAnchor = null;
+        main.removeCallbacks(idleCheck);
         if (autoCancel != null) { main.removeCallbacks(autoCancel); autoCancel = null; }
         if (wake != null) { if (wake.isHeld()) wake.release(); wake = null; }
-        getSystemService(NotificationManager.class).cancel(NOTE_ARRIVED);
+        cancelArrived();
+    }
+
+    // ---------- forgotten trips ----------
+
+    /** Notes where and when the phone last really moved, so a trip left running can end at that point. */
+    private void trackMovement(Location loc) {
+        android.content.SharedPreferences p = Store.prefs(this);
+        if (!p.getBoolean("moveFix", false)) {
+            // First fix of the trip: the idle clock starts now, not while GPS was still searching.
+            p.edit().putBoolean("moveFix", true).putLong("moveAt", System.currentTimeMillis()).putFloat("moveKm", (float) Store.km(this)).apply();
+            idleAnchor = loc;
+            return;
+        }
+        if (idleAnchor == null) { idleAnchor = loc; return; }
+        if (idleAnchor.distanceTo(loc) / 1000.0 >= IDLE_MOVE_KM) {
+            idleAnchor = loc;
+            p.edit().putLong("moveAt", System.currentTimeMillis()).putFloat("moveKm", (float) Store.km(this)).apply();
+        }
+    }
+
+    private void checkIdle() {
+        int min = Store.idleMin(this);
+        android.content.SharedPreferences p = Store.prefs(this);
+        if (!Store.tracking(this) || min <= 0 || !p.getBoolean("moveFix", false)) return;
+        long moveAt = p.getLong("moveAt", 0);
+        if (System.currentTimeMillis() - moveAt < min * 60 * 1000L) return;
+        float km = p.getFloat("moveKm", 0f);
+        long startTs = Store.startTs(this);
+        cancelArrived();
+        String text;
+        if (km < AUTO_MIN_KM) {
+            Store.endTrip(this, true);
+            MainActivity.ping("discard");
+            text = "No driving was recorded, so nothing was saved.";
+        } else {
+            p.edit().putLong("endedTs", startTs).putLong("endedAt", moveAt).putFloat("endedKm", km).apply();
+            Store.endTrip(this, false);
+            MainActivity.ping("autoend");
+            String at = android.text.format.DateFormat.getTimeFormat(this).format(new java.util.Date(moveAt));
+            text = String.format(Locale.US, "Saved %.1f km, ending at %s. Tap to check it or add a reason.", km, at);
+        }
+        Notification n = new Notification.Builder(this, "ended")
+                .setSmallIcon(R.drawable.ic_note)
+                .setContentTitle("Trip ended automatically")
+                .setContentText(text)
+                .setStyle(new Notification.BigTextStyle().bigText("The phone hasn't moved for " + min + " minutes. " + text))
+                .setContentIntent(open(false))
+                .setAutoCancel(true)
+                .build();
+        getSystemService(NotificationManager.class).notify(NOTE_ENDED, n);
+        apply();
     }
 
     private void autoCancelCheck(long ts) {
@@ -145,13 +219,14 @@ public class TrackerService extends Service implements LocationListener {
     @Override public void onLocationChanged(Location loc) {
         Store.prefs(this).edit().putLong("fixAt", SystemClock.elapsedRealtime()).putFloat("acc", loc.getAccuracy()).apply();
         if (!Store.tracking(this) || loc.getAccuracy() > 60) return;
-        if (anchor == null) { anchor = loc; return; }
+        if (anchor == null) { anchor = loc; trackMovement(loc); return; }
         double d = anchor.distanceTo(loc) / 1000.0;
         if (d > 5) { anchor = loc; return; }                       // jump after a signal gap: re-anchor
         if (d < Math.max(0.02, loc.getAccuracy() / 1000.0)) return; // within the noise: wait for more movement
         anchor = loc;
         float km = (float) (Store.km(this) + d);
         Store.prefs(this).edit().putFloat("km", km).apply();
+        trackMovement(loc);
         long now = SystemClock.elapsedRealtime();
         if (now - lastNoteAt > 15000) {
             lastNoteAt = now;
@@ -194,7 +269,7 @@ public class TrackerService extends Service implements LocationListener {
     }
 
     private void onCharger() {
-        getSystemService(NotificationManager.class).cancel(NOTE_ARRIVED);
+        cancelArrived();
         if (!Store.auto(this) || Store.tracking(this) || !onWireless()) return;
         Store.startTrip(this, System.currentTimeMillis(), true);
         apply();
@@ -202,16 +277,38 @@ public class TrackerService extends Service implements LocationListener {
     }
 
     private void onLifted() {
-        if (!Store.tracking(this) || !Store.autoTrip(this) || Store.km(this) < AUTO_MIN_KM) return;
-        Notification n = new Notification.Builder(this, "arrived")
+        if (!Store.tracking(this) || Store.km(this) < AUTO_MIN_KM) return;
+        cancelArrived();
+        arrivedCount = 0;
+        arrivedAgain();
+    }
+
+    /** The "Arrived?" alert: rings, vibrates and pops up, then repeats a couple of times until the trip ends. */
+    private void arrivedAgain() {
+        if (!Store.tracking(this)) { cancelArrived(); return; }
+        Intent keep = new Intent(this, TrackerService.class).setAction(ACTION_KEEP);
+        Notification n = new Notification.Builder(this, "tripend")
                 .setSmallIcon(R.drawable.ic_note)
-                .setContentTitle("Arrived?")
-                .setContentText(String.format(Locale.US, "Tap End trip to save it · %.1f km", Store.km(this)))
-                .setContentIntent(open(false))
+                .setContentTitle("Arrived? End your trip")
+                .setContentText(String.format(Locale.US, "%.1f km so far. Tap End trip to save it.", Store.km(this)))
+                .setCategory(Notification.CATEGORY_REMINDER)
+                .setContentIntent(open(true))
                 .addAction(new Notification.Action.Builder(null, "End trip", open(true)).build())
+                .addAction(new Notification.Action.Builder(null, "Keep driving",
+                        PendingIntent.getService(this, 3, keep, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT)).build())
                 .setAutoCancel(true)
                 .build();
         getSystemService(NotificationManager.class).notify(NOTE_ARRIVED, n);
+        if (arrivedCount < ARRIVED_REPEAT_MS.length) {
+            long wait = ARRIVED_REPEAT_MS[arrivedCount] - (arrivedCount > 0 ? ARRIVED_REPEAT_MS[arrivedCount - 1] : 0);
+            arrivedCount++;
+            main.postDelayed(arrivedRepeat, wait);
+        }
+    }
+
+    private void cancelArrived() {
+        main.removeCallbacks(arrivedRepeat);
+        getSystemService(NotificationManager.class).cancel(NOTE_ARRIVED);
     }
 
     // ---------- car Bluetooth ----------
@@ -245,7 +342,7 @@ public class TrackerService extends Service implements LocationListener {
     private void onCarConnected(String addr) {
         String vid = carFor(addr);
         if (vid == null) return;
-        getSystemService(NotificationManager.class).cancel(NOTE_ARRIVED);
+        cancelArrived();
         if (Store.tracking(this)) {
             // A charger trip that started moments ago: it's in this car.
             if (Store.autoTrip(this) && Store.prefs(this).getString("tripVid", null) == null
@@ -262,7 +359,8 @@ public class TrackerService extends Service implements LocationListener {
     }
 
     private void onCarDisconnected(String addr) {
-        if (addr.equals(Store.prefs(this).getString("btAddr", null))) onLifted();
+        // The car the trip started from, or any linked car during a trip started by hand.
+        if (addr.equals(Store.prefs(this).getString("btAddr", null)) || carFor(addr) != null) onLifted();
     }
 
     // ---------- notifications ----------

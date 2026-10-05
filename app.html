@@ -436,6 +436,7 @@ function syncFromNative(){
   if(!NATIVE) return;
   const st=nState();
   if(S.live && st.discardedTs && +st.discardedTs===S.live.startTs){ S.live=null; persist(); return; }
+  if(S.live && st.endedTs && +st.endedTs===S.live.startTs){ saveIdleTrip(+st.endedAt,+st.endedKm); return; }
   if(st.tracking && !S.live && S.vehicles.length){
     const v=veh(st.vid)||activeVeh();
     S.live={vid:v.id,startTs:+st.startTs||Date.now(),startOdo:currentOdo(v.id),type:"business",purpose:"",gpsKm:0,from:"",btVid:st.vid||""};
@@ -453,6 +454,7 @@ window.dmNative=function(evt,arg){
   if(evt==="resume") collectNativeErrors();
   syncFromNative();
   if(evt==="odo"){ closeAllScreens(); tab="drive"; render(); if(veh(arg)) odoSheet(null,arg); return; }
+  if(evt==="autoend") closeAllScreens();
   if(evt==="end" && S.live){ closeAllScreens(); tab="drive"; render(); endTripSheet(); return; }
   if(!screenStack.length) render();
 };
@@ -463,7 +465,35 @@ window.dmBack=function(){
 };
 
 /* ---------- live trip ---------- */
-let tick=null, geoWatch=null, lastFix=null;
+let tick=null, geoWatch=null, lastFix=null, idleFix=null;
+const idleMin = () => S.settings.idleMin==null ? 20 : +S.settings.idleMin;
+// Tell the app how long a trip may sit still before it ends by itself.
+let idleSent=null;
+function pushIdle(){
+  if(!NATIVE||typeof NATIVE.setIdle!=="function"||idleSent===idleMin()) return;
+  try{ NATIVE.setIdle(idleMin()); idleSent=idleMin(); }catch(e){}
+}
+// Web only (the app does this itself): end a trip that has sat still too long while the page is open.
+function checkIdleWeb(){
+  const L=S.live; if(NATIVE||!L||!L.moveTs||!idleMin()) return;
+  if(Date.now()-L.moveTs>=idleMin()*60000) saveIdleTrip(L.moveTs,L.moveKm||0);
+}
+// A trip left running: save it as ending where the phone last moved.
+function saveIdleTrip(endTs,km){
+  const L=S.live; if(!L) return;
+  closeAllScreens(); stopGps();
+  if(km<0.3){ S.live=null; persist(); render(); toast("Trip ended: no driving recorded, nothing saved"); return; }
+  const s=L.startOdo, e=s+Math.max(1,Math.round(km));
+  const {t}=saveLiveTrip(s,e,Math.max(endTs||Date.now(),L.startTs),L.purpose||"");
+  render(); toast(`Trip ended automatically · ${fmtKm(t.endOdo-t.startOdo)} km saved`);
+}
+function saveLiveTrip(s,e,endTs,purpose){
+  const L=S.live, g=gapBefore(L.vid,L.startTs,s), months=[monthKey(L.startTs)];
+  if(g) months.push(monthKey(addGapTrip(L.vid,g,L.startTs,s).startTs));
+  const t={id:uid(),vid:L.vid,startTs:L.startTs,endTs,startOdo:s,endOdo:e,type:L.type,purpose};
+  S.trips.push(t); S.live=null; stopGps(); persist({months});
+  return {t,g};
+}
 function startTrip(vid){
   const v=veh(vid)||activeVeh(); if(!v){ go("setup"); return; }
   if(S.live) return;
@@ -484,10 +514,12 @@ function startGps(){
       if(c.acc>60) return;
       if(lastFix){ const d=hav(lastFix,c); if(d>0.015 && d<5){ S.live.gpsKm=(S.live.gpsKm||0)+d; saveLocal(); } }
       lastFix=c; S.live.gps=true;
+      if(!idleFix||hav(idleFix,c)>=0.2||!S.live.moveTs){ idleFix=c; S.live.moveTs=Date.now(); S.live.moveKm=S.live.gpsKm||0; saveLocal(); }
+      checkIdleWeb();
     },()=>{ if(S.live) S.live.gps=false; },{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
   }catch(e){}
 }
-function stopGps(){ if(NATIVE){ try{ NATIVE.stopTrip(); }catch(e){} return; } if(geoWatch!=null){ try{navigator.geolocation.clearWatch(geoWatch);}catch(e){} } geoWatch=null; lastFix=null; }
+function stopGps(){ if(NATIVE){ try{ NATIVE.stopTrip(); }catch(e){} return; } if(geoWatch!=null){ try{navigator.geolocation.clearWatch(geoWatch);}catch(e){} } geoWatch=null; lastFix=null; idleFix=null; }
 function hav(a,b){ const R=6371,r=x=>x*Math.PI/180; const dLa=r(b.lat-a.lat),dLo=r(b.lon-a.lon); const h=Math.sin(dLa/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
 
 /* ---------- navigation ---------- */
@@ -505,7 +537,7 @@ function renderTabs(){
   $("#tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>go(b.dataset.tab));
 }
 function render(){
-  pushBtCars(); pushReminder();
+  pushBtCars(); pushReminder(); pushIdle();
   renderTabs();
   clearInterval(tick);
   const app=$("#app");
@@ -1025,7 +1057,7 @@ function bindDrive(){
   if(S.live){
     const el=$("#elapsed"); const upd=()=>{ const m=Math.floor((Date.now()-S.live.startTs)/60000); el.textContent=`${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`; };
     const gl=$("#gpsline");
-    const upd2=()=>{ upd(); if(gl) gl.innerHTML=gpsLine(); };
+    const upd2=()=>{ if(!NATIVE){ checkIdleWeb(); if(!S.live) return; } upd(); if(gl) gl.innerHTML=gpsLine(); };
     upd2(); tick=setInterval(upd2,NATIVE?5000:15000);
     if(gl) gl.onclick=e=>{ const b=e.target.closest("[data-fixloc]"); if(!b||!NATIVE) return; try{ b.dataset.fixloc==="gps"?NATIVE.openLocationSettings():NATIVE.askLocation(); }catch(err){} };
     document.querySelectorAll("[data-ltype]").forEach(b=>b.onclick=()=>{ S.live.type=b.dataset.ltype; persist(); render(); });
@@ -1088,10 +1120,7 @@ function endTripSheet(){
       const s=startVal(), e=endVal(), p=$("#ep",root).value.trim();
       if(!e||e<=s&&mode==="km"&&!(+km.value)){ $("#eerr",root).textContent= mode==="km"?"Enter the kilometres travelled.":"Enter the end odometer."; return; }
       if(e<s){ $("#eerr",root).textContent="End odometer must be the same as or higher than the start."; return; }
-      const g=gapBefore(L.vid,L.startTs,s), months=[monthKey(L.startTs)];
-      if(g) months.push(monthKey(addGapTrip(L.vid,g,L.startTs,s).startTs));
-      const t={id:uid(),vid:L.vid,startTs:L.startTs,endTs:Date.now(),startOdo:s,endOdo:e,type:L.type,purpose:p};
-      S.trips.push(t); S.live=null; stopGps(); persist({months}); close(); render();
+      const {g}=saveLiveTrip(s,e,Date.now(),p); close(); render();
       toast(`Trip saved · ${fmtKm(e-s)} km`+(g?` · ${fmtKm(g.km)} km private logged`:""));
     };
   });
@@ -1652,13 +1681,22 @@ function bindReminderPanel(){
   $("#remTime").onchange=()=>save("Reminder time saved");
   const n=$("#remNot"); if(n) n.onclick=()=>{ try{ NATIVE.askNotifications(); }catch(e){} };
 }
+function idlePanel(){
+  const m=idleMin();
+  return `<h2>Forgotten trips</h2>
+  <div class="panel">
+    <label for="idleMin" style="margin-top:0">End a trip by itself when the phone hasn't moved for</label>
+    <select id="idleMin">${[[15,"15 minutes"],[20,"20 minutes"],[30,"30 minutes"],[45,"45 minutes"],[60,"1 hour"],[0,"Never"]].map(([v,l])=>`<option value="${v}" ${v===m?"selected":""}>${l}</option>`).join("")}</select>
+    <p class="note">The trip is saved with the GPS kilometres and ends at the time you last moved, not when the timer ran out. If no driving was recorded, nothing is saved.${NATIVE?"":" On the web this only works while DriveMate is open on screen."}</p>
+  </div>`;
+}
 function autoPanel(){
   const st=nState(), p=nPerms();
   const row=(ok,label,id,btn)=>`<li class="chk"><span><span class="${ok?"ok":"no"}" aria-hidden="true">${ok?"✓":"!"}</span> ${label}</span>${ok?`<span class="small muted">Done</span>`:`<button class="btn ghost" id="${id}" style="flex:0 0 auto;min-height:40px;padding:0 14px">${btn}</button>`}</li>`;
   return `<h2>Automatic trips</h2>
   <div class="panel">
     <label class="check" style="margin-top:0"><input type="checkbox" id="autoOn" ${st.auto?"checked":""}> Start a trip when the phone goes on the wireless charger</label>
-    <p class="small muted" style="margin-top:8px">Lift the phone off the charger and DriveMate asks if you've arrived. Tap End trip to save it with the GPS kilometres filled in. If the phone doesn't move 300 m within 10 minutes, the trip is cancelled, so a charger at home won't log trips.</p>
+    <p class="small muted" style="margin-top:8px">Lift the phone off the charger, or turn the car off so its Bluetooth disconnects, and DriveMate alerts you with sound and vibration to end the trip. The alert repeats twice over the next 6 minutes unless you end the trip or tap Keep driving. If the phone doesn't move 300 m within 10 minutes, the trip is cancelled, so a charger at home won't log trips.</p>
     <p class="small muted" style="margin-top:8px">To start trips from a car's Bluetooth instead, edit the vehicle above and choose its Bluetooth device.</p>
     <ul class="list" style="margin-top:6px">
       ${row(p.fine,"Location access","pLoc","Allow")}
@@ -1684,6 +1722,7 @@ function setup(){
     <p class="note">Cents per km uses ${Math.round(rateFor(fyOf(Date.now()))*100)}c for ${fyLabel(fyOf(Date.now()))}, capped at 5,000 business km per car. Motorcycles use actual costs × work-use percentage instead.</p>
   </div>
   ${NATIVE?reminderPanel():""}
+  ${idlePanel()}
   ${NATIVE?autoPanel():webAutoPanel()}
   ${accountPanel()}
   ${donatePanel()}
@@ -1709,6 +1748,7 @@ function bindSetup(){
   document.querySelectorAll("[data-ev]").forEach(b=>b.onclick=()=>vehSheet(veh(b.dataset.ev)));
   $("#tr").onchange=e=>{ S.settings.taxRate=+e.target.value; persist(); };
   $("#mc").onchange=e=>{ S.settings.medicare=e.target.checked; persist(); };
+  $("#idleMin").onchange=e=>{ S.settings.idleMin=+e.target.value; persist(); pushIdle(); toast(+e.target.value?`Trips end after ${e.target.selectedOptions[0].textContent} without moving`:"Trips only end when you end them"); };
   const ts=$("#testStart"); if(ts) ts.onclick=()=>{ tab="drive"; startTrip(activeVeh()?.id); };
   if(NATIVE){
     bindReminderPanel();

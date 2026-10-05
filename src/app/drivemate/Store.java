@@ -25,10 +25,13 @@ final class Store {
     static boolean hasBtCars(Context c) { return !"{}".equals(btCars(c)) && hasBluetooth(c); }
     /** Anything that needs the background service watching for a trip to start. */
     static boolean watching(Context c) { return auto(c) || hasBtCars(c); }
+    /** Minutes without movement before a trip ends by itself; 0 = never. */
+    static int idleMin(Context c) { return prefs(c).getInt("idleMin", 20); }
 
     static void startTrip(Context c, long ts, boolean auto) {
         prefs(c).edit().putBoolean("tracking", true).putLong("startTs", ts).putFloat("km", 0f)
-                .putBoolean("autoTrip", auto).remove("tripVid").remove("btAddr").putLong("fixAt", 0).putFloat("acc", 999f).apply();
+                .putBoolean("autoTrip", auto).remove("tripVid").remove("btAddr").putLong("fixAt", 0).putFloat("acc", 999f)
+                .putLong("moveAt", ts).putFloat("moveKm", 0f).putBoolean("moveFix", false).apply();
     }
 
     static void endTrip(Context c, boolean discarded) {
