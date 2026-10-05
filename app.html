@@ -102,6 +102,9 @@ input[type=checkbox]{width:auto}
 .errlist pre{white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0 4px;max-height:240px;overflow:auto}
 .vpic{display:block;object-fit:cover;border-radius:10px}
 .chip{display:inline-flex;align-items:center;gap:6px}
+.chip-order{border-style:dashed;color:var(--muted);font-weight:500}
+.vord-row{display:flex;align-items:center;gap:10px;padding:8px 0}.vord-n{width:1.5em;color:var(--muted);font-weight:600}
+.vord-btn{flex:0 0 auto;min-width:48px;min-height:44px;padding:0;font-size:1.15rem}.vord-btn:disabled{opacity:.35}
 .chip-pic{display:inline-flex;margin-left:-6px}.chip-pic .vpic{border-radius:50%;width:24px;height:24px}
 .drive-pic{display:flex;justify-content:center;margin-bottom:12px}
 .list-pic{flex:0 0 auto;display:flex;align-items:center}
@@ -333,6 +336,7 @@ function sessionEnded(){ cloud=null; me=null; saveAuth(null); setSync("Signed ou
 /* ---------- derived data ---------- */
 const veh = id => S.vehicles.find(v=>v.id===id);
 const activeVeh = () => veh(S.settings.active) || S.vehicles[0] || null;
+const defType = v => v&&v.defType==="private" ? "private" : "business";
 function readings(vid){ // every known odometer point for a vehicle
   const pts=[];
   const v=veh(vid); if(v&&v.startOdo!=null) pts.push({ts:v.startTs||0,odo:+v.startOdo});
@@ -439,12 +443,12 @@ function syncFromNative(){
   if(S.live && st.endedTs && +st.endedTs===S.live.startTs){ saveIdleTrip(+st.endedAt,+st.endedKm); return; }
   if(st.tracking && !S.live && S.vehicles.length){
     const v=veh(st.vid)||activeVeh();
-    S.live={vid:v.id,startTs:+st.startTs||Date.now(),startOdo:currentOdo(v.id),type:"business",purpose:"",gpsKm:0,from:"",btVid:st.vid||""};
+    S.live={vid:v.id,startTs:+st.startTs||Date.now(),startOdo:currentOdo(v.id),type:defType(v),purpose:"",gpsKm:0,from:"",btVid:st.vid||""};
     persist();
   }else if(S.live && st.tracking && st.vid && veh(st.vid) && S.live.btVid!==st.vid){
     // A charger trip whose car Bluetooth connected just after: move it to that car (once, so a manual change sticks).
     S.live.btVid=st.vid;
-    if(S.live.vid!==st.vid){ S.live.vid=st.vid; S.live.startOdo=currentOdo(st.vid); }
+    if(S.live.vid!==st.vid){ S.live.vid=st.vid; S.live.startOdo=currentOdo(st.vid); S.live.type=defType(veh(st.vid)); }
     persist();
   }else if(S.live && !st.tracking){
     try{ NATIVE.startTrip(String(S.live.startTs)); }catch(e){}
@@ -497,7 +501,7 @@ function saveLiveTrip(s,e,endTs,purpose){
 function startTrip(vid){
   const v=veh(vid)||activeVeh(); if(!v){ go("setup"); return; }
   if(S.live) return;
-  S.live={vid:v.id,startTs:Date.now(),startOdo:currentOdo(v.id),type:"business",purpose:"",gpsKm:0,from:""};
+  S.live={vid:v.id,startTs:Date.now(),startOdo:currentOdo(v.id),type:defType(v),purpose:"",gpsKm:0,from:""};
   persist(); startGps(); render(); toast("Trip started");
 }
 function startGps(){
@@ -554,7 +558,26 @@ const LOGO="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAQDAwMDAgQDA
 function header(title){ return title?`<h1>${title}</h1>`:""; }
 function vehicleChips(sel,onAttr="data-veh"){
   if(S.vehicles.length<2) return "";
-  return `<div class="chips" role="group" aria-label="Vehicle">${S.vehicles.map(v=>`<button class="chip" ${onAttr}="${v.id}" aria-pressed="${v.id===sel}">${v.pic?`<span class="chip-pic">${vehPic(v,30)}</span>`:""}${esc(v.name)}</button>`).join("")}</div>`;
+  return `<div class="chips" role="group" aria-label="Vehicle">${S.vehicles.map(v=>`<button class="chip" ${onAttr}="${v.id}" aria-pressed="${v.id===sel}">${v.pic?`<span class="chip-pic">${vehPic(v,30)}</span>`:""}${esc(v.name)}</button>`).join("")}<button class="chip chip-order" data-vorder aria-label="Change vehicle order">⇅ Reorder</button></div>`;
+}
+function bindVehOrder(){ document.querySelectorAll("[data-vorder]").forEach(b=>b.onclick=vehOrderSheet); }
+function vehOrderSheet(){
+  sheet("Vehicle order",`<p class="small muted" style="margin-top:12px">The first vehicle shows first on the Drive page and in every list.</p><ul class="list" id="vord"></ul>
+    <div class="actions"><button class="btn" data-close>Done</button></div>`,
+  root=>{
+    const list=$("#vord",root);
+    const draw=()=>{
+      list.innerHTML=S.vehicles.map((v,i)=>`<li class="vord-row"><span class="vord-n">${i+1}</span>${v.pic?`<span class="list-pic">${vehPic(v,40)}</span>`:""}<b style="flex:1">${esc(v.name)}</b>
+        <button class="btn ghost vord-btn" data-mv="${i}" data-d="-1" aria-label="Move ${esc(v.name)} up" ${i===0?"disabled":""}>↑</button>
+        <button class="btn ghost vord-btn" data-mv="${i}" data-d="1" aria-label="Move ${esc(v.name)} down" ${i===S.vehicles.length-1?"disabled":""}>↓</button></li>`).join("");
+      list.querySelectorAll("[data-mv]").forEach(b=>b.onclick=()=>{
+        const i=+b.dataset.mv, j=i+(+b.dataset.d); if(j<0||j>=S.vehicles.length) return;
+        [S.vehicles[i],S.vehicles[j]]=[S.vehicles[j],S.vehicles[i]]; persist(); draw(); render();
+        const f=list.querySelector(`[data-mv="${j}"][data-d="${b.dataset.d}"]`)||list.querySelector(`[data-mv="${j}"]:not([disabled])`); if(f) f.focus();
+      });
+    };
+    draw();
+  });
 }
 
 /* ---------- Google / Facebook sign-in, terms, storage notice ---------- */
@@ -994,7 +1017,7 @@ function welcome(){
   <div class="err" id="verr"></div>
   <button class="btn road block" id="vsave" style="margin-top:14px">Add vehicle</button></div>`;
 }
-function bindWelcome(){ $("#vsave").onclick=()=>saveVehicle(null,true); bindVehBt(); bindVehPic(); bindVehKind(); }
+function bindWelcome(){ $("#vsave").onclick=()=>saveVehicle(null,true); bindVehBt(); bindVehPic(); bindVehKind(); bindVehDefType(); }
 
 /* ---------- drive ---------- */
 function odoPlate(n){
@@ -1046,7 +1069,7 @@ function recentPurposes(){ const seen=[]; S.trips.slice().sort((a,b)=>b.startTs-
 function bindDrive(){
   bindUpdate();
   const df=$("#donFoot"); if(df) df.onclick=()=>donateSheet(false);
-  document.querySelectorAll("[data-veh]").forEach(b=>b.onclick=()=>{ S.settings.active=b.dataset.veh; persist(); render(); });
+  document.querySelectorAll("[data-veh]").forEach(b=>b.onclick=()=>{ S.settings.active=b.dataset.veh; persist(); render(); }); bindVehOrder();
   const s=$("#start"); if(s) s.onclick=()=>startTrip(activeVeh().id);
   const ap=$("#addPast"); if(ap) ap.onclick=()=>tripSheet(null);
   const on=$("#odoNow"); if(on) on.onclick=()=>odoSheet(null);
@@ -1169,7 +1192,7 @@ function trips(){
   ${inner}`;
 }
 function bindTrips(){
-  document.querySelectorAll("[data-veh]").forEach(b=>b.onclick=()=>{ S.settings.active=b.dataset.veh; persist(); render(); });
+  document.querySelectorAll("[data-veh]").forEach(b=>b.onclick=()=>{ S.settings.active=b.dataset.veh; persist(); render(); }); bindVehOrder();
   document.querySelectorAll("[data-tv]").forEach(b=>b.onclick=()=>{ tripsView=b.dataset.tv; render(); });
   const a=$("#addTrip"); if(a) a.onclick=()=>tripSheet(null);
   const o=$("#addOdo"); if(o) o.onclick=()=>odoSheet(null);
@@ -1181,7 +1204,7 @@ function bindTrips(){
 }
 function tripSheet(t){
   const v=activeVeh(); const isNew=!t;
-  const base=t||{vid:v.id,startTs:Date.now()-3600e3,endTs:Date.now(),startOdo:currentOdo(v.id),endOdo:"",type:"business",purpose:""};
+  const base=t||{vid:v.id,startTs:Date.now()-3600e3,endTs:Date.now(),startOdo:currentOdo(v.id),endOdo:"",type:defType(v),purpose:""};
   sheet(isNew?"Add a trip":"Edit trip",`
     <label for="tv">Vehicle</label><select id="tv">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===base.vid?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
     <p class="small" id="tvnote" style="color:var(--warn);margin-top:6px"></p>
@@ -1213,7 +1236,11 @@ function tripSheet(t){
       const so=odoAt(vid,st); tso.value=so; if(teo.value!==""||!isNew) teo.value=so+km; tkm.value=km||tkm.value;
       $("#tvnote",root).textContent=`Odometer changed to ${veh(vid).name}'s reading at that time. Check it before saving.`;
     });
-    root.querySelectorAll("[data-tt]").forEach(b=>b.onclick=()=>{ type=b.dataset.tt; root.querySelectorAll("[data-tt]").forEach(x=>x.setAttribute("aria-pressed",x===b)); });
+    let typeSet=false;
+    const setType=t=>{ type=t; root.querySelectorAll("[data-tt]").forEach(x=>x.setAttribute("aria-pressed",x.dataset.tt===t)); };
+    root.querySelectorAll("[data-tt]").forEach(b=>b.onclick=()=>{ typeSet=true; setType(b.dataset.tt); });
+    // A new trip follows the chosen vehicle's default type until you pick one yourself.
+    if(isNew) $("#tv",root).addEventListener("change",()=>{ if(!typeSet) setType(defType(veh($("#tv",root).value))); });
     $("#tsave",root).onclick=()=>{
       const so=startVal(), eo=+$("#teo",root).value, p=$("#tp",root).value.trim();
       const st=new Date($("#ts",root).value).getTime(), en=new Date($("#te",root).value).getTime();
@@ -1583,6 +1610,10 @@ function shrinkPhoto(file){
 /* ---------- setup ---------- */
 const CAR_NOTE="Cents per km or logbook method, whichever gives the bigger deduction.";
 const MOTO_NOTE="The ATO doesn't count motorcycles as cars, so you claim actual costs × your work-use percentage instead of cents per km.";
+function bindVehDefType(){
+  const g=$("#vdt"); if(!g) return;
+  g.querySelectorAll("[data-dt]").forEach(b=>b.onclick=()=>{ g.dataset.type=b.dataset.dt; g.querySelectorAll("[data-dt]").forEach(x=>x.setAttribute("aria-pressed",x===b)); });
+}
 function bindVehKind(){
   const box=$("#vk"); if(!box) return;
   box.querySelectorAll("[data-kind]").forEach(b=>b.onclick=()=>{
@@ -1604,6 +1635,9 @@ function vehicleForm(v){
   <div class="row"><div><label for="vr">Registration</label><input id="vr" value="${esc(v.rego||"")}" placeholder="ABC123"></div><div><label for="vm">Make / model</label><input id="vm" value="${esc(v.model||"")}" placeholder="Toyota HiLux"></div></div>
   ${picForm(v)}
   <div class="row"><div><label for="vo">Odometer at setup</label><input id="vo" class="odo" inputmode="numeric" autocomplete="off" value="${v.startOdo??""}"></div><div><label for="vd">Setup date</label><input id="vd" type="date" value="${isoDate(v.startTs||Date.now())}"></div></div>
+  <label>New trips in this vehicle are</label>
+  <div class="seg" role="group" id="vdt" data-type="${defType(v)}"><button type="button" class="biz" data-dt="business" aria-pressed="${defType(v)==="business"}">Business</button><button type="button" data-dt="private" aria-pressed="${defType(v)==="private"}">Private</button></div>
+  <p class="small muted" style="margin-top:6px">You can still change each trip.</p>
   <label for="vl">12-week logbook start (optional)</label><input id="vl" type="date" value="${v.logStart?isoDate(v.logStart):""}">
   <p class="small muted" id="vlNote" style="margin-top:6px">${isMoto(v)?MOTO_LB:CAR_LB}</p>${NATIVE?`
   <label>Vehicle Bluetooth <span class="muted">(optional)</span></label>
@@ -1643,7 +1677,7 @@ function saveVehicle(v,first){
   if(!name){ err.textContent="Give the vehicle a name."; return false; }
   if($("#vo").value===""||odo<0){ err.textContent="Enter the odometer reading."; return false; }
   const d=$("#vd").value, l=$("#vl").value;
-  const rec={kind:$("#vk")?.dataset.kind==="motorcycle"?"motorcycle":"car",name,rego:$("#vr").value.trim().toUpperCase(),model:$("#vm").value.trim(),startOdo:odo,startTs:new Date(d+"T00:00").getTime(),logStart:l?new Date(l+"T00:00").getTime():null};
+  const rec={kind:$("#vk")?.dataset.kind==="motorcycle"?"motorcycle":"car",name,rego:$("#vr").value.trim().toUpperCase(),model:$("#vm").value.trim(),startOdo:odo,startTs:new Date(d+"T00:00").getTime(),logStart:l?new Date(l+"T00:00").getTime():null,defType:$("#vdt")?.dataset.type==="private"?"private":"business"};
   try{ rec.pic=JSON.parse($("#vpic").dataset.pic)||null; }catch(e){}
   const btBox=$("#vbt"); if(btBox) rec.bt=btBox.dataset.addr?{addr:btBox.dataset.addr,name:btBox.dataset.name}:null;
   if(v) Object.assign(v,rec); else { const n={id:uid(),...rec}; S.vehicles.push(n); S.settings.active=n.id; }
@@ -1713,7 +1747,7 @@ function setup(){
   return `${header("Setup")}
   <h2 style="margin-top:0">Vehicles</h2>
   <div class="panel">${S.vehicles.length?`<ul class="list">${S.vehicles.map(v=>`<li><button class="item" data-ev="${v.id}">${v.pic?`<span class="list-pic">${vehPic(v,56)}</span>`:""}<div style="flex:1"><b>${esc(v.name)}</b><div class="small muted">${esc([v.rego,v.model].filter(Boolean).join(" · "))||"No details"}</div></div><span class="km">${fmtKm(currentOdo(v.id))}</span></button></li>`).join("")}</ul>`:""}
-  <button class="btn block" id="addV" style="margin-top:12px">Add vehicle</button></div>
+  <button class="btn block" id="addV" style="margin-top:12px">Add vehicle</button>${S.vehicles.length>1?`<button class="btn ghost block" data-vorder style="margin-top:10px">Change vehicle order</button>`:""}</div>
   <h2>Tax</h2>
   <div class="panel">
     <label for="tr" style="margin-top:0">Your marginal tax rate</label>
@@ -1744,7 +1778,7 @@ function bindSetup(){
   const dn=$("#donBtn"); if(dn) dn.onclick=()=>donateSheet(false);
   $("#shareBtn").onclick=shareApp;
   $("#errBtn").onclick=errorLogSheet;
-  $("#addV").onclick=()=>vehSheet(null);
+  $("#addV").onclick=()=>vehSheet(null); bindVehOrder();
   document.querySelectorAll("[data-ev]").forEach(b=>b.onclick=()=>vehSheet(veh(b.dataset.ev)));
   $("#tr").onchange=e=>{ S.settings.taxRate=+e.target.value; persist(); };
   $("#mc").onchange=e=>{ S.settings.medicare=e.target.checked; persist(); };
@@ -1784,7 +1818,7 @@ function vehSheet(v){
   sheet(v?"Edit vehicle":"Add vehicle",`${vehicleForm(v||{})}<div class="err" id="verr"></div>
   <div class="actions">${v?`<button class="btn danger" id="vdel">Delete</button>`:`<button class="btn ghost" data-close>Cancel</button>`}<button class="btn" id="vsave">Save vehicle</button></div>`,
   (root,close)=>{
-    bindVehBt(); bindVehPic(); bindVehKind();
+    bindVehBt(); bindVehPic(); bindVehKind(); bindVehDefType();
     $("#vsave",root).onclick=()=>{ if(saveVehicle(v,false)) close(); };
     const d=$("#vdel",root); if(d) d.onclick=async()=>{ if(!await ask(`Delete ${v.name} and all its trips, readings and expenses?`)) return;
       const months=new Set(S.trips.filter(t=>t.vid===v.id).map(t=>monthKey(t.startTs)));
