@@ -1,6 +1,8 @@
 <resources>
   <color name="bg">#0F121C</color>
   <string name="app_name">DriveMate</string>
+  <string name="widget_desc">Start and end a trip from your home screen</string>
+  <string name="tile_label">Start trip</string>
   <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
     <item name="android:windowBackground">@color/bg</item>
     <item name="android:colorBackground">@color/bg</item>

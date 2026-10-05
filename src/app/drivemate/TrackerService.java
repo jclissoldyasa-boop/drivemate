@@ -99,6 +99,7 @@ public class TrackerService extends Service implements LocationListener {
 
     /** Make GPS, the charger watch and the notification match the stored state. */
     private void apply() {
+        TripControl.update(this);
         boolean tracking = Store.tracking(this), auto = Store.auto(this), bt = Store.hasBtCars(this);
         if (!tracking && !auto && !bt) {
             stopGps();
@@ -231,6 +232,7 @@ public class TrackerService extends Service implements LocationListener {
         if (now - lastNoteAt > 15000) {
             lastNoteAt = now;
             getSystemService(NotificationManager.class).notify(NOTE_ONGOING, ongoing());
+            TripControl.update(this);
         }
     }
 

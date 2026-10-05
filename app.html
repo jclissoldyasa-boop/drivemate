@@ -102,6 +102,28 @@ input[type=checkbox]{width:auto}
 .errlist pre{white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0 4px;max-height:240px;overflow:auto}
 .vpic{display:block;object-fit:cover;border-radius:10px}
 .chip{display:inline-flex;align-items:center;gap:6px}
+.tag.w{background:var(--warn-soft);color:var(--warn)}
+.noreason{color:var(--warn)}
+.sel-box{flex:0 0 auto;width:24px;height:24px;border:2px solid var(--muted);border-radius:7px;margin-right:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:var(--road-ink)}
+li[aria-selected="true"] .sel-box{background:var(--biz);border-color:var(--biz)}
+.selbar{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1.5px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
+.selbar .in{max-width:560px;margin:0 auto}
+.selbar .acts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+.selbar .acts .btn{min-height:44px;padding:0 6px;font-size:14px}
+.sel-pad{height:130px}
+.rsn-row{border-bottom:1px solid var(--line);padding:10px 0}
+.rsn-row:last-child{border-bottom:0}
+.chart{position:relative;margin-top:6px}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart .tip{position:absolute;pointer-events:none;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:13px;white-space:nowrap;transform:translate(-50%,-100%);margin-top:-8px}
+.chart text{fill:var(--muted);font-size:11px;font-family:var(--sans)}
+.chart .bar{fill:var(--biz)}
+.chart .bar.on{fill:var(--g1)}
+.chart .hit{fill:transparent;cursor:pointer}
+details.tbl summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:8px}
+details.tbl table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+details.tbl td,details.tbl th{text-align:left;padding:4px 0;border-bottom:1px solid var(--line)}
+details.tbl td:last-child,details.tbl th:last-child{text-align:right}
 .chip-order{border-style:dashed;color:var(--muted);font-weight:500}
 .vord-row{display:flex;align-items:center;gap:10px;padding:8px 0}.vord-n{width:1.5em;color:var(--muted);font-weight:600}
 .vord-btn{flex:0 0 auto;min-width:48px;min-height:44px;padding:0;font-size:1.15rem}.vord-btn:disabled{opacity:.35}
@@ -336,6 +358,8 @@ function sessionEnded(){ cloud=null; me=null; saveAuth(null); setSync("Signed ou
 /* ---------- derived data ---------- */
 const veh = id => S.vehicles.find(v=>v.id===id);
 const activeVeh = () => veh(S.settings.active) || S.vehicles[0] || null;
+const needsReason = t => t.type==="business" && !String(t.purpose||"").trim();
+const REASON_NOTE = "The ATO needs a reason for every business trip in your logbook.";
 const defType = v => v&&v.defType==="private" ? "private" : "business";
 function readings(vid){ // every known odometer point for a vehicle
   const pts=[];
@@ -440,7 +464,14 @@ function syncFromNative(){
   if(!NATIVE) return;
   const st=nState();
   if(S.live && st.discardedTs && +st.discardedTs===S.live.startTs){ S.live=null; persist(); return; }
-  if(S.live && st.endedTs && +st.endedTs===S.live.startTs){ saveIdleTrip(+st.endedAt,+st.endedKm); return; }
+  if(S.live && st.endedTs && +st.endedTs===S.live.startTs){ lsSet("dm.endedDone",String(st.endedTs)); saveIdleTrip(+st.endedAt,+st.endedKm); return; }
+  // Started and timed out while DriveMate was closed (widget, tile, charger or car Bluetooth): save it now.
+  if(!S.live && !st.tracking && st.endedTs && String(st.endedTs)!==lsGet("dm.endedDone") && S.vehicles.length && !S.trips.some(t=>t.startTs===+st.endedTs)){
+    lsSet("dm.endedDone",String(st.endedTs));
+    const v=veh(st.vid)||activeVeh();
+    S.live={vid:v.id,startTs:+st.endedTs,startOdo:odoAt(v.id,+st.endedTs),type:defType(v),purpose:"",gpsKm:0,from:""};
+    saveIdleTrip(+st.endedAt,+st.endedKm); return;
+  }
   if(st.tracking && !S.live && S.vehicles.length){
     const v=veh(st.vid)||activeVeh();
     S.live={vid:v.id,startTs:+st.startTs||Date.now(),startOdo:currentOdo(v.id),type:defType(v),purpose:"",gpsKm:0,from:"",btVid:st.vid||""};
@@ -459,6 +490,7 @@ window.dmNative=function(evt,arg){
   syncFromNative();
   if(evt==="odo"){ closeAllScreens(); tab="drive"; render(); if(veh(arg)) odoSheet(null,arg); return; }
   if(evt==="autoend") closeAllScreens();
+  if(evt==="tab" && TABS.some(t=>t[0]===arg)){ go(arg); return; }
   if(evt==="end" && S.live){ closeAllScreens(); tab="drive"; render(); endTripSheet(); return; }
   if(!screenStack.length) render();
 };
@@ -527,6 +559,7 @@ function stopGps(){ if(NATIVE){ try{ NATIVE.stopTrip(); }catch(e){} return; } if
 function hav(a,b){ const R=6371,r=x=>x*Math.PI/180; const dLa=r(b.lat-a.lat),dLo=r(b.lon-a.lon); const h=Math.sin(dLa/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
 
 /* ---------- navigation ---------- */
+let selMode=false, sel=new Set();
 let tab="drive", tripsView="trips", reportFy=fyOf(Date.now()), reportVid=null;
 const TABS=[
   ["drive","Drive",'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M12 3v7M4.5 16.5 10.3 13M19.5 16.5 13.7 13"/>'],
@@ -535,13 +568,13 @@ const TABS=[
   ["setup","Setup",'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>']
 ];
 function toTop(){ try{ window.scrollTo(0,0); document.body.scrollIntoView({block:"start"}); }catch(e){} }
-function go(t){ closeAllScreens(); tab=t; render(); toTop(); }
+function go(t){ closeAllScreens(); if(t!=="trips"){ selMode=false; sel.clear(); } tab=t; render(); toTop(); }
 function renderTabs(){
   $("#tabs").innerHTML=TABS.map(([k,l,ic])=>`<button data-tab="${k}" ${k===tab?'aria-current="page"':''}><svg viewBox="0 0 24 24" aria-hidden="true">${ic}</svg>${l}</button>`).join("");
   $("#tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>go(b.dataset.tab));
 }
 function render(){
-  pushBtCars(); pushReminder(); pushIdle();
+  pushBtCars(); pushReminder(); pushIdle(); pushAlerts();
   renderTabs();
   clearInterval(tick);
   const app=$("#app");
@@ -1054,7 +1087,7 @@ function drive(){
       <p class="small muted" id="gpsline">${gpsLine()}</p>
       <label>This trip is</label>
       <div class="seg" role="group"><button class="biz" data-ltype="business" aria-pressed="${L.type==="business"}">Business</button><button data-ltype="private" aria-pressed="${L.type!=="business"}">Private</button></div>
-      <label for="lpurpose">Reason for the trip <span class="muted">(optional)</span></label>
+      <label for="lpurpose">Reason for the trip <span class="muted">${L.type==="business"?"(needed for business trips)":"(optional)"}</span></label>
       <input id="lpurpose" value="${esc(L.purpose)}" placeholder="e.g. Mow and edge – 12 Smith St, Melton">
       ${recentPurposes().length?`<div class="quick">${recentPurposes().map(p=>`<button data-qp="${esc(p)}">${esc(p)}</button>`).join("")}</div>`:""}
       <button class="btn biz block" id="endTrip" style="margin-top:16px;min-height:56px">End trip</button>
@@ -1070,6 +1103,8 @@ function drive(){
   ${due&&!L?`<div class="banner"><strong>Weekly odometer due.</strong> ${lw?`Last reading ${fmtKm(lw.value)} km on ${dFmt(lw.ts)}.`:"No weekly reading yet."}
     <div class="row" style="margin-top:8px"><input id="wkOdo" class="odo" inputmode="numeric" autocomplete="off" placeholder="Odometer now" aria-label="Odometer reading now"><button class="btn" id="wkSave" style="flex:0 0 auto">Save</button></div></div>`:""}
   ${(()=>{ const others=L?[]:S.vehicles.filter(x=>x.id!==v.id&&odoDue(x.id)); return others.length?`<div class="banner"><strong>Also due:</strong> ${others.map(x=>`<button class="linkbtn" data-odov="${x.id}" style="padding:4px 0;margin-right:14px">${esc(x.name)}</button>`).join("")}</div>`:""; })()}
+  ${L?"":remBanner()}
+  ${L?"":reasonBanner(null)}
   <div class="plate-wrap">${v.pic?`<div class="drive-pic">${vehPic(v,140)}</div>`:""}${odoPlate(L?L.startOdo:currentOdo(v.id))}<div class="plate-sub">${esc(v.name)}${v.rego?` · ${esc(v.rego)}`:""}</div></div>
   ${body}
   <h2>${fyLabel(fy)} so far</h2>
@@ -1081,10 +1116,44 @@ function drive(){
   </div></div>
   ${donateFoot()}`;
 }
+// Suggestions for reason boxes: the reasons you've used most, newest first.
+function purposeList(){
+  const seen=new Map(); S.trips.slice().sort((a,b)=>b.startTs-a.startTs).forEach(t=>{ const p=String(t.purpose||"").trim(); if(t.type==="business"&&p&&!seen.has(p)&&seen.size<40) seen.set(p,1); });
+  return `<datalist id="dlPurp">${[...seen.keys()].map(p=>`<option value="${esc(p)}">`).join("")}</datalist>`;
+}
+function missingReasons(vid){ return S.trips.filter(t=>(!vid||t.vid===vid)&&needsReason(t)).sort((a,b)=>b.startTs-a.startTs); }
+function reasonBanner(vid){
+  const n=missingReasons(vid).length; if(!n) return "";
+  return `<div class="banner"><strong>${n} business trip${n>1?"s need":" needs"} a reason.</strong> ${REASON_NOTE}
+    <div style="margin-top:8px"><button class="btn" data-fixreasons="${vid||""}">Add reasons</button></div></div>`;
+}
+function bindReasonBanner(){ document.querySelectorAll("[data-fixreasons]").forEach(b=>b.onclick=()=>reasonsSheet(b.dataset.fixreasons||null)); }
+function reasonsSheet(vid){
+  const list=missingReasons(vid).slice(0,40);
+  if(!list.length){ toast("Every business trip has a reason"); return; }
+  sheet("Add trip reasons",`<p class="small muted" style="margin-top:12px">${REASON_NOTE} Fill in the ones you remember, or mark a trip Private if it wasn't for work.</p>
+    ${purposeList()}
+    <div id="rsnList">${list.map(t=>`<div class="rsn-row" data-rid="${t.id}">
+      <div class="small"><b>${dFmt(t.startTs)}</b> <span class="muted">${tFmt(t.startTs)}${t.endTs?`–${tFmt(t.endTs)}`:""} · ${fmtKm(tripKm(t))} km${S.vehicles.length>1?` · ${esc(veh(t.vid)?.name||"")}`:""}</span></div>
+      <div class="row" style="margin-top:6px"><input aria-label="Reason for the trip on ${dFmt(t.startTs)}" list="dlPurp" placeholder="Reason for the trip"><button class="btn ghost" data-rpriv style="flex:0 0 auto;min-height:44px;padding:0 12px">Private</button></div></div>`).join("")}</div>
+    <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn biz" id="rsnSave">Save reasons</button></div>`,
+  (root,close)=>{
+    root.querySelectorAll("[data-rpriv]").forEach(b=>b.onclick=()=>{ const row=b.closest("[data-rid]"); const on=row.dataset.priv!=="1"; row.dataset.priv=on?"1":""; b.setAttribute("aria-pressed",on); b.textContent=on?"Private ✓":"Private"; row.querySelector("input").disabled=on; });
+    $("#rsnSave",root).onclick=()=>{
+      const months=new Set(); let n=0;
+      root.querySelectorAll("[data-rid]").forEach(row=>{ const t=S.trips.find(x=>x.id===row.dataset.rid); if(!t) return;
+        const val=row.querySelector("input").value.trim();
+        if(row.dataset.priv==="1"){ t.type="private"; months.add(monthKey(t.startTs)); n++; }
+        else if(val){ t.purpose=val; months.add(monthKey(t.startTs)); n++; } });
+      if(n) persist({months:[...months]}); close(); render(); toast(n?`${n} trip${n>1?"s":""} updated`:"Nothing changed");
+    };
+  });
+}
 function recentPurposes(){ const seen=[]; S.trips.slice().sort((a,b)=>b.startTs-a.startTs).forEach(t=>{ if(t.type==="business"&&t.purpose&&!seen.includes(t.purpose)&&seen.length<4) seen.push(t.purpose); }); return seen; }
 function bindDrive(){
   bindUpdate();
   const df=$("#donFoot"); if(df) df.onclick=()=>donateSheet(false);
+  bindRem(); bindReasonBanner();
   document.querySelectorAll("[data-veh]").forEach(b=>b.onclick=()=>{ S.settings.active=b.dataset.veh; persist(); render(); }); bindVehOrder();
   const s=$("#start"); if(s) s.onclick=()=>startTrip(activeVeh().id);
   const ap=$("#addPast"); if(ap) ap.onclick=()=>tripSheet(null);
@@ -1137,7 +1206,8 @@ function endTripSheet(){
     <label for="eso">Start odometer</label><input id="eso" class="odo" inputmode="numeric" autocomplete="off" value="${L.startOdo}">
     <p class="small muted" id="ecalc" style="margin-top:6px"></p>
     <p class="small" id="egap" style="color:var(--warn)"></p>
-    <label for="ep">Reason for the trip <span class="muted">(optional)</span></label><input id="ep" value="${esc(L.purpose)}" placeholder="Optional">
+    <label for="ep">Reason for the trip <span class="muted">${L.type==="business"?"(needed for business trips)":"(optional)"}</span></label><input id="ep" value="${esc(L.purpose)}" placeholder="${L.type==="business"?"e.g. Quote at 12 Smith St":"Optional"}" list="dlPurp">${purposeList()}
+    <p class="small" id="epNote" style="color:var(--warn);margin-top:6px"></p>
     <div class="err" id="eerr"></div>
     <div class="actions"><button class="btn ghost" data-close>Keep driving</button><button class="btn biz" id="esave">Save trip</button></div>
     <button class="linkbtn" id="ediscard">Discard this trip</button>`,
@@ -1155,6 +1225,8 @@ function endTripSheet(){
       if(mode==="odo"&&e>startVal()) eo.value=e; if(mode==="km"&&+eo.value>startVal()) km.value=+eo.value-startVal(); upd(); (mode==="km"?km:eo).focus(); });
     [km,eo,so].forEach(i=>i.oninput=upd); upd(); km.focus();
     $("#ediscard",root).onclick=async()=>{ if(await ask("Discard this trip? Nothing will be saved.","Discard trip")){ S.live=null; stopGps(); persist(); close(); render(); toast("Trip discarded"); } };
+    const epNote=()=>{ $("#epNote",root).textContent = L.type==="business"&&!$("#ep",root).value.trim() ? REASON_NOTE+" You can add it later from the Log." : ""; };
+    $("#ep",root).oninput=epNote; epNote();
     $("#esave",root).onclick=()=>{
       const s=startVal(), e=endVal(), p=$("#ep",root).value.trim();
       if(!e||e<=s&&mode==="km"&&!(+km.value)){ $("#eerr",root).textContent= mode==="km"?"Enter the kilometres travelled.":"Enter the end odometer."; return; }
@@ -1193,8 +1265,13 @@ function trips(){
     const list=S.trips.filter(t=>t.vid===v.id).sort((a,b)=>b.startTs-a.startTs);
     if(!list.length) inner=`<div class="empty">No trips yet. Start one from the Drive tab, or add a past trip.</div>`;
     else{ let last=""; inner=`<ul class="list">`+list.map(t=>{ const d=dFmt(t.startTs); const h=d!==last?`<li class="day">${d}</li>`:""; last=d;
-      return h+`<li class="swipe" data-type="${t.type==="business"?"private":"business"}"><span class="swipe-under" aria-hidden="true">${(l=>`<span>${l}</span><span>${l}</span>`)(t.type==="business"?"Private":"Business")}</span><button class="item" data-trip="${t.id}"><div><span class="tag ${t.type==="business"?"b":"p"}">${t.type==="business"?"Business":"Private"}</span><span class="small muted">${tFmt(t.startTs)}${t.endTs?`–${tFmt(t.endTs)}`:""}</span><div>${esc(t.purpose||"No reason entered")}</div><div class="small muted">${fmtKm(t.startOdo)} → ${fmtKm(t.endOdo)}</div></div><span class="km">${fmtKm(tripKm(t))} km</span></button></li>`; }).join("")+`</ul>`; }
-    inner=`<button class="btn block" id="addTrip" style="margin-bottom:6px">Add a trip</button>`+(list.length?`<p class="small muted" style="margin:8px 0 0">Swipe a trip sideways to switch it between Business and Private.</p>`:"")+inner;
+      if(selMode) return h+`<li aria-selected="${sel.has(t.id)}"><button class="item" data-pick="${t.id}" aria-pressed="${sel.has(t.id)}"><span class="sel-box" aria-hidden="true">${sel.has(t.id)?"✓":""}</span><div style="flex:1"><span class="tag ${t.type==="business"?"b":"p"}">${t.type==="business"?"Business":"Private"}</span><span class="small muted">${tFmt(t.startTs)}${t.endTs?`–${tFmt(t.endTs)}`:""}</span><div class="${needsReason(t)?"noreason":""}">${esc(t.purpose||"No reason entered")}</div></div><span class="km">${fmtKm(tripKm(t))} km</span></button></li>`;
+      return h+`<li class="swipe" data-type="${t.type==="business"?"private":"business"}"><span class="swipe-under" aria-hidden="true">${(l=>`<span>${l}</span><span>${l}</span>`)(t.type==="business"?"Private":"Business")}</span><button class="item" data-trip="${t.id}"><div><span class="tag ${t.type==="business"?"b":"p"}">${t.type==="business"?"Business":"Private"}</span><span class="small muted">${tFmt(t.startTs)}${t.endTs?`–${tFmt(t.endTs)}`:""}</span><div class="${needsReason(t)?"noreason":""}">${needsReason(t)?`<span class="tag w">Reason needed</span>`:""}${esc(t.purpose||"No reason entered")}</div><div class="small muted">${fmtKm(t.startOdo)} → ${fmtKm(t.endOdo)}</div></div><span class="km">${fmtKm(tripKm(t))} km</span></button></li>`; }).join("")+`</ul>`; }
+    inner = selMode
+      ? `<p class="small muted" style="margin:0 0 8px">Tap trips to select them.</p><button class="linkbtn" id="selAll" style="padding:4px 0">${sel.size===list.length?"Clear selection":"Select all "+list.length}</button>`+inner+`<div class="sel-pad"></div>
+        <div class="selbar" role="region" aria-label="Selected trips"><div class="in"><div class="row" style="align-items:center"><b id="selN">${sel.size} selected</b><button class="linkbtn" id="selDone" style="text-align:right">Done</button></div>
+        <div class="acts"><button class="btn biz" data-bulk="business" ${sel.size?"":"disabled"}>Business</button><button class="btn ghost" data-bulk="private" ${sel.size?"":"disabled"}>Private</button><button class="btn ghost" data-bulk="reason" ${sel.size?"":"disabled"}>Reason</button><button class="btn danger" data-bulk="delete" ${sel.size?"":"disabled"}>Delete</button></div></div></div>`
+      : reasonBanner(v.id)+`<div class="duo" style="margin-top:0;margin-bottom:6px"><button class="btn" id="addTrip">Add a trip</button>${list.length?`<button class="btn ghost" id="selStart">Select trips</button>`:""}</div>`+(list.length?`<p class="small muted" style="margin:8px 0 0">Swipe a trip sideways to switch it between Business and Private, or use Select trips to change several at once.</p>`:"")+inner;
   }else if(tripsView==="odo"){
     const list=S.odo.filter(o=>o.vid===v.id).sort((a,b)=>b.ts-a.ts);
     inner=`<button class="btn block" id="addOdo" style="margin-bottom:6px">Record odometer</button>`+(list.length?`<ul class="list">${list.map(o=>`<li><button class="item" data-odo="${o.id}"><div><div>${dFmt(o.ts)}</div><div class="small muted">${esc(o.note||"")}</div></div><span class="km">${fmtKm(o.value)}</span></button></li>`).join("")}</ul>`:`<div class="empty">Record the odometer once a week so your total kilometres are accurate.</div>`);
@@ -1214,9 +1291,32 @@ function bindTrips(){
   const o=$("#addOdo"); if(o) o.onclick=()=>odoSheet(null);
   const e=$("#addExp"); if(e) e.onclick=()=>expSheet(null,"Maintenance & servicing");
   const af=$("#addFuel"); if(af) af.onclick=()=>expSheet(null,"Fuel");
+  bindReasonBanner();
+  const ss=$("#selStart"); if(ss) ss.onclick=()=>{ selMode=true; sel.clear(); render(); };
+  if(selMode){
+    const vis=()=>S.trips.filter(t=>t.vid===activeVeh().id);
+    $("#selDone").onclick=()=>{ selMode=false; sel.clear(); render(); };
+    $("#selAll").onclick=()=>{ const all=vis(); if(sel.size===all.length) sel.clear(); else all.forEach(t=>sel.add(t.id)); render(); };
+    document.querySelectorAll("[data-pick]").forEach(b=>b.onclick=()=>{ const id=b.dataset.pick; sel.has(id)?sel.delete(id):sel.add(id); const y=window.scrollY; render(); window.scrollTo(0,y); });
+    document.querySelectorAll("[data-bulk]").forEach(b=>b.onclick=()=>bulkAction(b.dataset.bulk));
+  }
   document.querySelectorAll("[data-trip]").forEach(b=>{ b.onclick=()=>{ if(b._swiped){ b._swiped=false; return; } tripSheet(S.trips.find(t=>t.id===b.dataset.trip)); }; swipeToggle(b); });
   document.querySelectorAll("[data-odo]").forEach(b=>b.onclick=()=>odoSheet(S.odo.find(t=>t.id===b.dataset.odo)));
   document.querySelectorAll("[data-exp]").forEach(b=>b.onclick=()=>expSheet(S.expenses.find(t=>t.id===b.dataset.exp)));
+}
+async function bulkAction(kind){
+  const list=S.trips.filter(t=>sel.has(t.id)); if(!list.length) return;
+  const months=[...new Set(list.map(t=>monthKey(t.startTs)))], n=list.length, ts=`${n} trip${n>1?"s":""}`;
+  const done=msg=>{ persist({months}); selMode=false; sel.clear(); render(); toast(msg); };
+  if(kind==="business"||kind==="private"){ list.forEach(t=>t.type=kind); done(`${ts} changed to ${kind==="business"?"Business":"Private"}`); return; }
+  if(kind==="delete"){ if(await ask(`Delete ${ts}? This can't be undone.`,`Delete ${ts}`)){ S.trips=S.trips.filter(t=>!sel.has(t.id)); done(`${ts} deleted`); } return; }
+  sheet("Set a reason",`<p class="small muted" style="margin-top:12px">Gives all ${ts} the same reason${list.some(t=>t.type!=="business")?" and makes them Business trips":""}.</p>
+    <label for="bkr">Reason for the trip</label><input id="bkr" list="dlPurp" placeholder="e.g. Weekly run – Smith St clients">${purposeList()}
+    <div class="err" id="bkErr"></div>
+    <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn biz" id="bkSave">Apply to ${ts}</button></div>`,
+  (root,close)=>{ const i=$("#bkr",root); i.focus();
+    $("#bkSave",root).onclick=()=>{ const r=i.value.trim(); if(!r){ $("#bkErr",root).textContent="Type a reason."; return; }
+      list.forEach(t=>{ t.purpose=r; t.type="business"; }); close(); done(`Reason set on ${ts}`); }; });
 }
 function tripSheet(t){
   const v=activeVeh(); const isNew=!t;
@@ -1229,7 +1329,7 @@ function tripSheet(t){
     ${isNew?`<p class="small" id="tgap" style="color:var(--warn);margin-top:6px"></p>`:""}
     <label for="teo">End odometer</label><input id="teo" class="odo" inputmode="numeric" autocomplete="off" value="${base.endOdo}">
     <label>Trip type</label><div class="seg" role="group"><button class="biz" data-tt="business" aria-pressed="${base.type==="business"}">Business</button><button data-tt="private" aria-pressed="${base.type!=="business"}">Private</button></div>
-    <label for="tp">Reason for the trip <span class="muted">(optional)</span></label><input id="tp" value="${esc(base.purpose)}">
+    <label for="tp">Reason for the trip <span class="muted">(needed for business trips)</span></label><input id="tp" value="${esc(base.purpose)}" list="dlPurp">${purposeList()}
     <div class="err" id="terr"></div>
     <div class="actions">${isNew?`<button class="btn ghost" data-close>Cancel</button>`:`<button class="btn danger" id="tdel">Delete</button>`}<button class="btn biz" id="tsave">Save trip</button></div>`,
   (root,close)=>{
@@ -1447,6 +1547,54 @@ async function uploadReceipt(blob){
 
 /* ---------- report ---------- */
 function allFys(){ const ys=new Set([fyOf(Date.now())]); S.trips.forEach(t=>ys.add(fyOf(t.startTs))); return [...ys].sort((a,b)=>b-a); }
+// Monthly fuel use: litres bought ÷ kilometres driven that month.
+function fuelMonths(vid){
+  const out=[]; const now=new Date();
+  for(let k=11;k>=0;k--){
+    const from=new Date(now.getFullYear(),now.getMonth()-k,1).getTime(), to=new Date(now.getFullYear(),now.getMonth()-k+1,1).getTime();
+    const L=S.expenses.filter(e=>e.vid===vid&&e.cat==="Fuel"&&e.ts>=from&&e.ts<to).reduce((a,e)=>a+(+e.litres||0),0);
+    const km=periodStats(vid,from,to).total;
+    out.push({from,label:new Date(from).toLocaleDateString("en-AU",{month:"short"}),L,km,v:L&&km>=50?L/km*100:null});
+  }
+  return out;
+}
+function fuelChart(v){
+  const m=fuelMonths(v.id), pts=m.filter(x=>x.v!=null);
+  if(pts.length<2) return `<h2>Fuel use</h2><div class="panel"><p class="small muted" style="margin:0">Enter the litres when you Fuel up, and record the odometer each week. After two months this shows your fuel use (L/100 km) month by month, so a sudden jump that could mean a problem stands out.</p></div>`;
+  const avg=pts.reduce((a,x)=>a+x.L,0)/pts.reduce((a,x)=>a+x.km,0)*100;
+  const max=Math.max(...pts.map(x=>x.v))*1.15, W=320, H=150, top=8, base=H-22, left=26, bw=(W-left)/12;
+  const y=val=>base-(val/max)*(base-top);
+  const step=max>20?10:max>8?4:2, grid=[]; for(let g=step;g<max;g+=step) grid.push(g);
+  const bars=m.map((x,i)=>{ const cx=left+i*bw+bw/2, w=Math.min(18,bw-6);
+    if(x.v==null) return `<text x="${cx}" y="${H-6}" text-anchor="middle">${x.label}</text>`;
+    const h=base-y(x.v), r=Math.min(4,h);
+    return `<path class="bar" data-i="${i}" d="M${cx-w/2},${base} V${y(x.v)+r} q0,-${r} ${r},-${r} H${cx+w/2-r} q${r},0 ${r},${r} V${base} Z"/>
+      <rect class="hit" data-i="${i}" x="${left+i*bw}" y="${top}" width="${bw}" height="${base-top}" tabindex="0" aria-label="${x.label}: ${x.v.toFixed(1)} litres per 100 km"/>
+      <text x="${cx}" y="${H-6}" text-anchor="middle">${x.label}</text>`; }).join("");
+  return `<h2>Fuel use</h2><div class="panel">
+    <div class="kv" style="margin-top:0"><span>Average, last 12 months</span><b>${avg.toFixed(1)} L/100 km</b></div>
+    <div class="chart" id="fuelChart" data-pts='${JSON.stringify(m.map(x=>x.v==null?null:{l:x.label,v:+x.v.toFixed(1),L:Math.round(x.L),km:Math.round(x.km)}))}'>
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Fuel use by month in litres per 100 km">
+        ${grid.map(g=>`<line x1="${left}" x2="${W}" y1="${y(g)}" y2="${y(g)}" stroke="var(--line)" stroke-width="1"/><text x="${left-4}" y="${y(g)+4}" text-anchor="end">${g}</text>`).join("")}
+        <line x1="${left}" x2="${W}" y1="${base}" y2="${base}" stroke="var(--muted)" stroke-width="1"/>
+        ${bars}
+      </svg><div class="tip" hidden></div></div>
+    <p class="note">Litres bought each month ÷ kilometres driven. One month can read high or low depending on when you filled up, so watch the trend rather than a single bar.</p>
+    <details class="tbl"><summary>Show as a table</summary><table><tr><th>Month</th><th>Litres</th><th>Km</th><th>L/100 km</th></tr>${m.filter(x=>x.v!=null).map(x=>`<tr><td>${new Date(x.from).toLocaleDateString("en-AU",{month:"long",year:"numeric"})}</td><td>${Math.round(x.L)}</td><td>${fmtKm(x.km)}</td><td>${x.v.toFixed(1)}</td></tr>`).join("")}</table></details>
+  </div>`;
+}
+function bindFuelChart(){
+  const c=$("#fuelChart"); if(!c) return;
+  const pts=JSON.parse(c.dataset.pts), tip=c.querySelector(".tip");
+  const show=el=>{ const i=+el.dataset.i, p=pts[i]; if(!p) return;
+    c.querySelectorAll(".bar").forEach(b=>b.classList.toggle("on",b.dataset.i==el.dataset.i));
+    const bar=c.querySelector(`.bar[data-i="${i}"]`), r=bar.getBoundingClientRect(), cr=c.getBoundingClientRect();
+    tip.innerHTML=`<b>${p.v} L/100 km</b><br><span class="muted">${p.l}: ${p.L} L over ${fmtKm(p.km)} km</span>`; tip.hidden=false;
+    tip.style.left=Math.min(Math.max(r.left-cr.left+r.width/2,70),cr.width-70)+"px"; tip.style.top=(r.top-cr.top)+"px"; };
+  const hide=()=>{ tip.hidden=true; c.querySelectorAll(".bar").forEach(b=>b.classList.remove("on")); };
+  c.querySelectorAll(".hit").forEach(h=>{ h.addEventListener("pointerenter",()=>show(h)); h.addEventListener("click",()=>show(h)); h.addEventListener("focus",()=>show(h)); h.addEventListener("blur",hide); });
+  c.addEventListener("pointerleave",e=>{ if(e.pointerType==="mouse") hide(); });
+}
 function report(){
   const v=veh(reportVid)||activeVeh(); reportVid=v.id;
   const c=claim(v.id,reportFy); const lb=c.lb;
@@ -1457,6 +1605,10 @@ function report(){
       <div class="kv"><span>Business km in period</span><b>${fmtKm(lb.biz)}</b></div>
       <div class="kv"><span>Business-use percentage</span><b>${pct(lb.pctBiz)}</b></div>`
     : `<p class="small muted">No 12-week logbook period set. ${c.moto?"For a motorcycle it's optional, but a 12-week record of every trip is the easiest way to show your work-use percentage. Add a start date in Setup.":"Add a start date in Setup if you want to use the logbook method."}</p>`;
+  const lbMissing = lb ? S.trips.filter(t=>t.vid===v.id&&t.startTs>=lb.from&&t.startTs<lb.to&&needsReason(t)).length : 0;
+  const lbExp = lb ? logbookExpiry(v) : null, lbExpSoon = lbExp && lbExp-Date.now() < 365*864e5;
+  const lbExtra = (lbMissing?`<p class="small noreason" style="margin-top:8px">${lbMissing} business trip${lbMissing>1?"s":""} in this period ${lbMissing>1?"have":"has"} no reason. <button class="linkbtn" data-fixreasons="${v.id}" style="display:inline;padding:0;min-height:0">Add reasons</button></p>`:"")
+    + (lbExp?`<p class="small ${lbExpSoon?"noreason":"muted"}" style="margin-top:8px">${lbExp<=Date.now()?`This logbook ran out on ${dFmt(lbExp-864e5)}. Start a new 12-week logbook to keep using the logbook method.`:`Valid until ${dFmt(lbExp-864e5)}${lbExpSoon?". Start a new 12-week logbook before then.":"."}`}</p>`:"");
   const bw=bestLogbookWindow(v.id), bwCur=bw&&lb&&lb.from===bw.from;
   const bestHtml = bw ? `<div class="panel" style="border-color:var(--biz);background:var(--biz-soft)">
       <h3 style="margin-top:0;color:var(--biz)">Your peak 12 weeks</h3>
@@ -1493,9 +1645,12 @@ function report(){
     return ks.length? ks.map(k=>`<div class="kv"><span>${esc(k)}</span><b>${money(by[k])}</b></div>`).join("")+`<div class="kv"><span>Total</span><b>${money(c.expTotal)}</b></div>`+(L&&c.total?`<p class="note">${L.toFixed(0)} litres of fuel · about ${(L/c.total*100).toFixed(1)} L/100 km</p>`:"")
     : `<p class="small muted">No expenses for this year yet. Use Fuel up or Add expense on the Drive tab.</p>`; })()}</div>
   <h2>12-week logbook</h2>
-  <div class="panel">${lbHtml}</div>${bestHtml}
+  <div class="panel">${lbHtml}${lbExtra}</div>${bestHtml}
+  ${fuelChart(v)}
   <h2>Export</h2>
   <div class="panel">
+    <button class="btn biz block" id="expPdf" style="margin-bottom:10px">Accountant report (PDF)</button>
+    <p class="small muted" style="margin:0 0 14px">Every vehicle for ${fyLabel(reportFy)}: deductions, logbook, expenses, trips and odometer readings, laid out to print or email.${NATIVE?" Choose Save as PDF in the print screen.":""}</p>
     <p class="small muted">The logbook file lists every trip with dates, start and end odometer, kilometres and reason, plus the period summary the ATO asks for.</p>
     <button class="btn block" id="expLog">Download logbook (CSV)</button>
     <button class="btn ghost block" id="expSum" style="margin-top:10px">Download summary (CSV)</button>
@@ -1507,6 +1662,8 @@ function bindReport(){
   $("#rv").onchange=e=>{ reportVid=e.target.value; render(); };
   const ub=$("#useBest"); if(ub) ub.onclick=async()=>{ const v=veh(reportVid), bw=bestLogbookWindow(v.id); if(!bw) return;
     if(await ask(`Make ${dFmt(bw.from)} – ${dFmt(bw.to-864e5)} your 12-week logbook period? Your business-use percentage becomes ${pct(bw.pctBiz)}.`,"Use this period")){ v.logStart=bw.from; persist(); render(); toast("Logbook period updated"); } };
+  $("#expPdf").onclick=accountantReport;
+  bindReasonBanner(); bindFuelChart();
   $("#expLog").onclick=()=>exportCsv(logbookCsv(),`logbook-${slug(veh(reportVid).name)}-${fyLabel(reportFy)}.csv`);
   $("#expSum").onclick=()=>exportCsv(summaryCsv(),`summary-${slug(veh(reportVid).name)}-${fyLabel(reportFy)}.csv`);
   $("#copySum").onclick=async()=>{ try{ await navigator.clipboard.writeText(summaryText()); toast("Summary copied"); }catch(e){ toast("Copy isn't available here"); } };
@@ -1514,6 +1671,68 @@ function bindReport(){
 const slug=s=>String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
 const csvCell=v=>{ const s=String(v??""); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; };
 const toCsv=rows=>rows.map(r=>r.map(csvCell).join(",")).join("\r\n");
+function accountantHtml(fy){
+  const [f,to]=fyRange(fy), e=esc, td=x=>`<td>${x}</td>`, tdr=x=>`<td class="r">${x}</td>`;
+  const who=account&&account.email?e(account.email):"";
+  const used=S.vehicles.filter(v=>S.trips.some(t=>t.vid===v.id&&t.startTs>=f&&t.startTs<to)||S.expenses.some(x=>x.vid===v.id&&x.ts>=f&&x.ts<to));
+  const secs=(used.length?used:S.vehicles).map(v=>{
+    const c=claim(v.id,fy), lb=c.lb;
+    const trips=c.trips.slice().sort((a,b)=>a.startTs-b.startTs), miss=trips.filter(needsReason).length;
+    const odo=S.odo.filter(o=>o.vid===v.id&&o.ts>=f&&o.ts<to).sort((a,b)=>a.ts-b.ts);
+    const by={}; c.expenses.forEach(x=>{ by[x.cat]=(by[x.cat]||0)+(+x.amount||0); });
+    return `<section><h2>${e(v.name)}${v.rego?` · ${e(v.rego)}`:""}</h2>
+      <p class="sub">${e(v.model||"")}${v.model?" · ":""}${c.moto?"Motorcycle":"Car"}</p>
+      <table class="kv">
+        <tr><th>Total km driven</th>${tdr(fmtKm(c.total))}</tr>
+        <tr><th>Business km</th>${tdr(fmtKm(c.biz))}</tr>
+        <tr><th>Business-use percentage</th>${tdr(pct(c.usePct)+` <span class="m">(${e(c.pctSource)})</span>`)}</tr>
+        ${c.moto?`<tr><th>Actual costs × work use (claim at D2)</th>${tdr(money(c.logbook))}</tr>`
+          :`<tr><th>Cents per km (${fmtKm(Math.min(c.biz,CPK_CAP))} km × ${Math.round(c.rate*100)}c)</th>${tdr(money(c.cents))}</tr>
+        <tr><th>Logbook method (${money(c.expTotal)} × ${pct(c.usePct)})</th>${tdr(money(c.logbook))}</tr>`}
+        <tr class="tot"><th>Higher deduction: ${e(methodName(c.best))}</th>${tdr(money(c.deduction))}</tr>
+      </table>
+      ${lb?`<h3>12-week logbook</h3><table class="kv">
+        <tr><th>Period</th>${tdr(`${dFmt(lb.from)} – ${dFmt(lb.to-864e5)}${lb.done?"":` (week ${lb.weeks} of 12)`}`)}</tr>
+        <tr><th>Odometer at start / end</th>${tdr(`${lb.startOdo!=null?fmtKm(lb.startOdo):"–"} / ${lb.endOdo!=null?fmtKm(lb.endOdo):"–"}`)}</tr>
+        <tr><th>Total km / business km</th>${tdr(`${fmtKm(lb.total)} / ${fmtKm(lb.biz)}`)}</tr>
+        <tr><th>Business-use percentage</th>${tdr(pct(lb.pctBiz))}</tr>
+        <tr><th>Valid until</th>${tdr(dFmt(logbookExpiry(v)-864e5))}</tr></table>`:""}
+      <h3>Expenses</h3>${Object.keys(by).length?`<table class="kv">${Object.keys(by).sort((a,b)=>by[b]-by[a]).map(k=>`<tr><th>${e(k)}</th>${tdr(money(by[k]))}</tr>`).join("")}<tr class="tot"><th>Total</th>${tdr(money(c.expTotal))}</tr></table>`:`<p class="m">None recorded.</p>`}
+      <h3>Trips (${trips.length})</h3>${miss?`<p class="warn">${miss} business trip${miss>1?"s have":" has"} no reason recorded.</p>`:""}
+      ${trips.length?`<table class="grid"><thead><tr><th>Date</th><th>Time</th><th class="r">Start odo</th><th class="r">End odo</th><th class="r">Km</th><th>Type</th><th>Reason</th></tr></thead><tbody>
+        ${trips.map(t=>`<tr>${td(new Date(t.startTs).toLocaleDateString("en-AU"))}${td(`${tFmt(t.startTs)}${t.endTs?"–"+tFmt(t.endTs):""}`)}${tdr(fmtKm(t.startOdo))}${tdr(fmtKm(t.endOdo))}${tdr(fmtKm(tripKm(t)))}${td(t.type==="business"?"Business":"Private")}${td(e(t.purpose||""))}</tr>`).join("")}</tbody></table>`:`<p class="m">No trips.</p>`}
+      ${odo.length?`<h3>Odometer readings</h3><table class="grid"><thead><tr><th>Date</th><th class="r">Odometer</th><th>Note</th></tr></thead><tbody>${odo.map(o=>`<tr>${td(new Date(o.ts).toLocaleDateString("en-AU"))}${tdr(fmtKm(o.value))}${td(e(o.note||""))}</tr>`).join("")}</tbody></table>`:""}
+    </section>`; }).join("");
+  const tot=S.vehicles.reduce((a,v)=>a+claim(v.id,fy).deduction,0);
+  return `<!doctype html><html><head><meta charset="utf-8"><title>DriveMate ${fyLabel(fy)}</title><style>
+    @page{size:A4;margin:16mm 14mm}
+    body{font:11px/1.45 Arial,Helvetica,sans-serif;color:#111;margin:0}
+    h1{font-size:20px;margin:0 0 2px} h2{font-size:15px;margin:22px 0 2px;padding-top:10px;border-top:2px solid #1f8f45} h3{font-size:12px;margin:14px 0 4px}
+    .sub,.m{color:#555} .warn{color:#a64b00;font-weight:bold}
+    table{border-collapse:collapse;width:100%} th,td{text-align:left;padding:3px 6px 3px 0;vertical-align:top}
+    .kv th{font-weight:normal;width:70%} .kv td{font-weight:bold} .kv tr{border-bottom:1px solid #ddd}
+    .tot th,.tot td{font-weight:bold;border-top:1.5px solid #111}
+    .grid thead th{border-bottom:1.5px solid #111;font-size:10px} .grid td{border-bottom:1px solid #e3e3e3;font-size:10px}
+    .r{text-align:right} thead{display:table-header-group} tr{page-break-inside:avoid}
+    .head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #1f8f45;padding-bottom:8px}
+    .note{margin-top:22px;color:#555;font-size:10px}
+  </style></head><body>
+  <div class="head"><div><h1>Vehicle report ${fyLabel(fy)}</h1><div class="sub">1 July ${fy} – 30 June ${fy+1}${who?` · ${who}`:""}</div></div><div class="sub">Made with DriveMate · ${new Date().toLocaleDateString("en-AU")}</div></div>
+  <table class="kv" style="margin-top:12px"><tr class="tot"><th>Total estimated deduction, all vehicles</th><td class="r">${money(tot)}</td></tr></table>
+  ${secs}
+  <p class="note">Figures are estimates worked out from the trips, odometer readings and expenses recorded in DriveMate. Cents per km is capped at 5,000 business km per car. Keep receipts for every expense. Motorcycles are claimed at D2 Work-related travel expenses using actual costs × work-use percentage.</p>
+  </body></html>`;
+}
+function accountantReport(){
+  const html=accountantHtml(reportFy), name=`DriveMate report ${fyLabel(reportFy)}`;
+  if(NATIVE&&typeof NATIVE.printHtml==="function"){ try{ NATIVE.printHtml(name,html); toast("Choose Save as PDF, then share it with your accountant"); }catch(e){ toast("Couldn't open the print screen"); } return; }
+  if(NATIVE){ exportFile(html,`drivemate-report-${fyLabel(reportFy)}.html`,"text/html"); toast("Update DriveMate to save this as a PDF. Saved as a web page for now."); return; }
+  const f=document.createElement("iframe"); f.style.cssText="position:fixed;width:0;height:0;border:0;right:0;bottom:0"; f.setAttribute("aria-hidden","true");
+  document.body.appendChild(f);
+  f.onload=()=>{ try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ toast("Couldn't open the print screen"); } setTimeout(()=>f.remove(),60000); };
+  f.srcdoc=html;
+  toast("Choose Save as PDF in the print screen");
+}
 function logbookCsv(){
   const v=veh(reportVid), c=claim(v.id,reportFy);
   const rows=[["Vehicle logbook",v.name],["Registration",v.rego||""],["Make / model",v.model||""],["Financial year",fyLabel(reportFy)],[]];
@@ -1731,6 +1950,91 @@ function bindReminderPanel(){
   $("#remTime").onchange=()=>save("Reminder time saved");
   const n=$("#remNot"); if(n) n.onclick=()=>{ try{ NATIVE.askNotifications(); }catch(e){} };
 }
+/* ---------- service, rego and insurance reminders ---------- */
+const REM_SOON_DAYS=14, REM_SOON_KM=500;
+const remList = () => S.vehicles.flatMap(v=>(v.reminders||[]).map(r=>({r,v})));
+function remState(r,v){
+  const now=Date.now(), odo=currentOdo(v.id);
+  const daysLeft = r.dueTs ? Math.ceil((r.dueTs-now)/864e5) : null, kmLeft = r.dueKm ? r.dueKm-odo : null;
+  const over=(daysLeft!=null&&daysLeft<0)||(kmLeft!=null&&kmLeft<=0);
+  const soon=!over&&((daysLeft!=null&&daysLeft<=REM_SOON_DAYS)||(kmLeft!=null&&kmLeft<=REM_SOON_KM));
+  const bits=[]; if(r.dueTs) bits.push(daysLeft<0?`${-daysLeft} day${daysLeft===-1?"":"s"} overdue`:daysLeft===0?"due today":`due ${dFmt(r.dueTs)}`);
+  if(r.dueKm) bits.push(kmLeft<=0?`${fmtKm(-kmLeft)} km overdue`:`due at ${fmtKm(r.dueKm)} km (${fmtKm(kmLeft)} to go)`);
+  return {over,soon,text:bits.join(" or ")||"No due date set"};
+}
+function remBanner(){
+  const due=remList().map(x=>({...x,st:remState(x.r,x.v)})).filter(x=>x.st.over||x.st.soon); if(!due.length) return "";
+  return `<div class="banner"><strong>Coming up.</strong><ul class="list" style="margin-top:6px">${due.map(x=>`<li><button class="item" data-rem="${x.v.id}:${x.r.id}" style="padding:8px 0"><div><b>${esc(x.r.what)}</b>${S.vehicles.length>1?` <span class="muted">· ${esc(x.v.name)}</span>`:""}<div class="small ${x.st.over?"noreason":"muted"}">${x.st.text}</div></div></button></li>`).join("")}</ul></div>`;
+}
+function bindRem(){
+  document.querySelectorAll("[data-rem]").forEach(b=>b.onclick=()=>{ const [vid,rid]=b.dataset.rem.split(":"); const v=veh(vid); remSheet(v,(v.reminders||[]).find(r=>r.id===rid)); });
+  const a=$("#remAdd"); if(a) a.onclick=()=>remSheet(activeVeh(),null);
+}
+function remPanel(){
+  const all=remList();
+  return `<h2>Service, rego and insurance</h2>
+  <div class="panel">${all.length?`<ul class="list">${all.map(({r,v})=>{ const st=remState(r,v); return `<li><button class="item" data-rem="${v.id}:${r.id}"><div><b>${esc(r.what)}</b>${S.vehicles.length>1?` <span class="muted">· ${esc(v.name)}</span>`:""}<div class="small ${st.over?"noreason":"muted"}">${st.text}${r.everyMonths||r.everyKm?` · repeats every ${[r.everyMonths?`${r.everyMonths} month${r.everyMonths>1?"s":""}`:"",r.everyKm?`${fmtKm(r.everyKm)} km`:""].filter(Boolean).join(" or ")}`:""}</div></div></button></li>`; }).join("")}</ul>`:`<p class="small muted" style="margin-top:0">Get a reminder before the next service, rego renewal or insurance is due, by date, by kilometres, or both.</p>`}
+    <button class="btn block" id="remAdd" style="margin-top:12px">Add a reminder</button>
+    <p class="note">Due-soon reminders show on the Drive tab two weeks or 500 km ahead.${NATIVE?" Date reminders also arrive as a notification a week before and on the day.":""}</p></div>`;
+}
+const addMonths=(ts,m)=>{ const d=new Date(ts); const day=d.getDate(); d.setDate(1); d.setMonth(d.getMonth()+m); d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate())); return d.getTime(); };
+function remSheet(v,r){
+  const isNew=!r; r=r||{what:"",dueTs:null,dueKm:null,everyMonths:null,everyKm:null};
+  sheet(isNew?"Add a reminder":"Reminder",`
+    <label for="rmw">What's due</label><input id="rmw" list="dlRem" value="${esc(r.what)}" placeholder="e.g. Service">
+    <datalist id="dlRem">${["Service","Registration","Insurance","Tyres","Roadworthy","Brakes","Timing belt"].map(x=>`<option value="${x}">`).join("")}</datalist>
+    <label for="rmv">Vehicle</label><select id="rmv">${S.vehicles.map(x=>`<option value="${x.id}" ${x.id===v.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+    <div class="row"><div><label for="rmd">Due date</label><input id="rmd" type="date" value="${r.dueTs?isoDate(r.dueTs):""}"></div><div><label for="rmk">Or at odometer</label><input id="rmk" class="odo" inputmode="numeric" autocomplete="off" value="${r.dueKm||""}" placeholder="km"></div></div>
+    <p class="small muted" style="margin-top:6px">Odometer now: ${fmtKm(currentOdo(v.id))} km. Fill in either or both.</p>
+    <div class="row"><div><label for="rmem">Repeat every (months)</label><input id="rmem" inputmode="numeric" value="${r.everyMonths||""}" placeholder="e.g. 12"></div><div><label for="rmek">Repeat every (km)</label><input id="rmek" class="odo" inputmode="numeric" autocomplete="off" value="${r.everyKm||""}" placeholder="e.g. 10,000"></div></div>
+    <div class="err" id="rmErr"></div>
+    <div class="actions">${isNew?`<button class="btn ghost" data-close>Cancel</button>`:`<button class="btn danger" id="rmDel">Delete</button>`}<button class="btn" id="rmSave">Save</button></div>
+    ${isNew?"":`<button class="btn biz block" id="rmDone" style="margin-top:12px">Done – it's been ${/insur|rego|regist/i.test(r.what)?"renewed":"done"}</button>`}`,
+  (root,close)=>{
+    const read=()=>{ const what=$("#rmw",root).value.trim(), d=$("#rmd",root).value, k=+$("#rmk",root).value||null;
+      return {what,dueTs:d?new Date(d+"T09:00").getTime():null,dueKm:k,everyMonths:+$("#rmem",root).value||null,everyKm:+$("#rmek",root).value||null}; };
+    const store=(vals,msg)=>{ const vid=$("#rmv",root).value;
+      S.vehicles.forEach(x=>{ if(x.reminders) x.reminders=x.reminders.filter(y=>y.id!==r.id); });
+      const tv=veh(vid); tv.reminders=(tv.reminders||[]).concat([{id:r.id||uid(),...vals}]); persist(); close(); render(); toast(msg); };
+    $("#rmSave",root).onclick=()=>{ const vals=read();
+      if(!vals.what){ $("#rmErr",root).textContent="Say what's due, e.g. Service."; return; }
+      if(!vals.dueTs&&!vals.dueKm){ $("#rmErr",root).textContent="Add a due date, an odometer reading, or both."; return; }
+      store(vals,"Reminder saved"); };
+    const del=$("#rmDel",root); if(del) del.onclick=()=>{ S.vehicles.forEach(x=>{ if(x.reminders) x.reminders=x.reminders.filter(y=>y.id!==r.id); }); persist(); close(); render(); toast("Reminder deleted"); };
+    const dn=$("#rmDone",root); if(dn) dn.onclick=()=>{ const vals=read();
+      if(!vals.everyMonths&&!vals.everyKm){ S.vehicles.forEach(x=>{ if(x.reminders) x.reminders=x.reminders.filter(y=>y.id!==r.id); }); persist(); close(); render(); toast(`${vals.what||"Reminder"} done`); return; }
+      const odo=currentOdo($("#rmv",root).value);
+      store({...vals,dueTs:vals.everyMonths?addMonths(Date.now(),vals.everyMonths):null,dueKm:vals.everyKm?odo+vals.everyKm:null},`Done. Next one ${[vals.everyMonths?dFmt(addMonths(Date.now(),vals.everyMonths)):"",vals.everyKm?`at ${fmtKm(odo+vals.everyKm)} km`:""].filter(Boolean).join(" or ")}`); };
+  });
+}
+
+/* ---------- planned notifications (logbook, reminders, end of year) ---------- */
+const at9 = ts => { const d=new Date(ts); d.setHours(9,0,0,0); return d.getTime(); };
+// A logbook covers the income year its 12 weeks start in and the 4 after, so it runs out on 30 June five years on.
+const logbookExpiry = v => v.logStart ? fyRange(fyOf(v.logStart)+4)[1] : null;
+function alertsList(){
+  const out=[], now=Date.now();
+  S.vehicles.forEach(v=>{
+    if(v.logStart){
+      const end=v.logStart+84*864e5, exp=logbookExpiry(v);
+      out.push({id:`lbdone-${v.id}`,at:at9(end),tab:"report",title:`12-week logbook finished: ${v.name}`,text:"Your logbook period is complete. Open the Report to see your business-use percentage."});
+      out.push({id:`lbexp-${v.id}`,at:at9(new Date(new Date(exp).getFullYear(),3,1).getTime()),tab:"report",title:`Logbook for ${v.name} runs out on 30 June`,text:"Start a new 12-week logbook before then so you can keep using the logbook method. Set the start date when you edit the vehicle."});
+    }
+    (v.reminders||[]).forEach(r=>{ if(!r.dueTs) return;
+      out.push({id:`rem-${r.id}-wk`,at:at9(r.dueTs-7*864e5),tab:"drive",title:`${r.what} due in a week`,text:`${v.name}: ${r.what.toLowerCase()} is due ${dFmt(r.dueTs)}.`});
+      out.push({id:`rem-${r.id}`,at:at9(r.dueTs),tab:"drive",title:`${r.what} due today`,text:`${v.name}: ${r.what.toLowerCase()} is due today.`}); });
+  });
+  if(S.vehicles.length){ const fy=fyOf(now), [,end]=fyRange(fy);
+    out.push({id:`eofy-${fy}`,at:at9(end),tab:"report",title:`Your ${fyLabel(fy)} car report is ready`,text:"Open the Report and tap Accountant report (PDF) to save a copy for your tax return."}); }
+  return out.filter(a=>a.at>now-864e5);
+}
+let alertsSent=null;
+function pushAlerts(){
+  if(!NATIVE||typeof NATIVE.setAlerts!=="function") return;
+  const j=JSON.stringify(alertsList()); if(j===alertsSent) return;
+  try{ NATIVE.setAlerts(j); alertsSent=j; }catch(e){}
+}
+
 function idlePanel(){
   const m=idleMin();
   return `<h2>Forgotten trips</h2>
@@ -1772,6 +2076,7 @@ function setup(){
     <p class="note">Cents per km uses ${Math.round(rateFor(fyOf(Date.now()))*100)}c for ${fyLabel(fyOf(Date.now()))}, capped at 5,000 business km per car. Motorcycles use actual costs × work-use percentage instead.</p>
   </div>
   ${NATIVE?reminderPanel():""}
+  ${remPanel()}
   ${idlePanel()}
   ${NATIVE?autoPanel():webAutoPanel()}
   ${accountPanel()}
@@ -1794,7 +2099,7 @@ function bindSetup(){
   const dn=$("#donBtn"); if(dn) dn.onclick=()=>donateSheet(false);
   $("#shareBtn").onclick=shareApp;
   $("#errBtn").onclick=errorLogSheet;
-  $("#addV").onclick=()=>vehSheet(null); bindVehOrder();
+  $("#addV").onclick=()=>vehSheet(null); bindVehOrder(); bindRem();
   document.querySelectorAll("[data-ev]").forEach(b=>b.onclick=()=>vehSheet(veh(b.dataset.ev)));
   $("#tr").onchange=e=>{ S.settings.taxRate=+e.target.value; persist(); };
   $("#mc").onchange=e=>{ S.settings.medicare=e.target.checked; persist(); };

@@ -43,6 +43,16 @@
     </activity>
     <service android:name=".TrackerService" android:exported="false" android:foregroundServiceType="location"/>
     <receiver android:name=".Reminder" android:exported="false"/>
+    <receiver android:name=".Alerts" android:exported="false"/>
+    <receiver android:name=".TripControl" android:exported="false" android:label="DriveMate trip">
+      <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter>
+      <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_trip"/>
+    </receiver>
+    <service android:name=".TripTile" android:exported="true" android:label="@string/tile_label"
+        android:icon="@drawable/ic_note" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+      <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE"/></intent-filter>
+      <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false"/>
+    </service>
     <receiver android:name=".BootReceiver" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.BOOT_COMPLETED"/>

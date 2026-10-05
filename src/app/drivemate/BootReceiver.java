@@ -8,6 +8,7 @@ import android.content.Intent;
 public class BootReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context c, Intent i) {
         Reminder.schedule(c); // alarms are cleared by a reboot
+        Alerts.schedule(c);
         if ((Store.watching(c) || Store.tracking(c)) && Store.hasBackground(c)) TrackerService.sync(c);
     }
 }

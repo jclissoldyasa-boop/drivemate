@@ -56,7 +56,8 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private boolean loaded, pendingEnd;
-    private String pendingOdo;
+    private String pendingOdo, pendingTab;
+    private WebView printView; // kept alive until the print dialog has the document
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraUri;
     private long askedAt;
@@ -111,6 +112,7 @@ public class MainActivity extends Activity {
                 loaded = true;
                 if (pendingEnd) { pendingEnd = false; js("window.dmNative&&window.dmNative('end')"); }
                 if (pendingOdo != null) { openOdo(pendingOdo); pendingOdo = null; }
+                if (pendingTab != null) { openTab(pendingTab); pendingTab = null; }
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -121,6 +123,7 @@ public class MainActivity extends Activity {
 
         pendingEnd = getIntent().getBooleanExtra("end", false);
         pendingOdo = getIntent().getStringExtra("odo");
+        pendingTab = getIntent().getStringExtra("tab");
         String auth = authCode(getIntent());
         if (auth != null) web.loadUrl(HOME + "auth/done#code=" + auth);
         else if (saved != null) web.restoreState(saved);
@@ -137,6 +140,11 @@ public class MainActivity extends Activity {
         String odo = intent.getStringExtra("odo");
         if (odo != null) {
             if (loaded) openOdo(odo); else pendingOdo = odo;
+            return;
+        }
+        String tab = intent.getStringExtra("tab");
+        if (tab != null) {
+            if (loaded) openTab(tab); else pendingTab = tab;
             return;
         }
         if (intent.getBooleanExtra("end", false)) {
@@ -168,6 +176,24 @@ public class MainActivity extends Activity {
     private void ocrDone(String id, String json) { runOnUiThread(() -> js("window.dmOcr&&window.dmOcr(" + JSONObject.quote(id) + "," + json + ")")); }
 
     /** Opens the Record odometer screen for a vehicle (from a reminder notification). */
+    private void openTab(String tab) {
+        js("window.dmNative&&window.dmNative('tab'," + JSONObject.quote(tab) + ")");
+    }
+
+    /** Lays out a page off screen and opens Android's print dialog, which can save it as a PDF. */
+    private void printHtml(String name, String html) {
+        WebView v = new WebView(this);
+        printView = v;
+        v.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                android.print.PrintManager pm = (android.print.PrintManager) getSystemService(PRINT_SERVICE);
+                pm.print(name, view.createPrintDocumentAdapter(name),
+                        new android.print.PrintAttributes.Builder().setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4).build());
+            }
+        });
+        v.loadDataWithBaseURL(HOME, html, "text/html", "utf-8", null);
+    }
+
     private void openOdo(String vid) {
         js("window.dmNative&&window.dmNative('odo'," + JSONObject.quote(vid) + ")");
     }
@@ -354,6 +380,15 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void setReminder(String json) {
             try { new JSONObject(json); } catch (Exception e) { return; }
             Reminder.configure(MainActivity.this, json);
+        }
+
+        @JavascriptInterface public void setAlerts(String json) {
+            try { new org.json.JSONArray(json); } catch (Exception e) { return; }
+            Alerts.configure(MainActivity.this, json);
+        }
+
+        @JavascriptInterface public void printHtml(String name, String html) {
+            runOnUiThread(() -> MainActivity.this.printHtml(name, html));
         }
 
         @JavascriptInterface public void setBtCars(String json) {
