@@ -1198,40 +1198,34 @@ function addGapTrip(vid,g,startTs,startOdo){
 
 function endTripSheet(){
   const L=S.live; const gps=Math.round(liveGpsKm());
+  // Start odometer comes from the trip itself; a missing one means "carry on from the last known reading", never 0.
+  const s=L.startOdo==null||L.startOdo==="" ? odoAt(L.vid,L.startTs) : +L.startOdo;
   sheet("End trip",`
-    <p class="muted small">Enter the kilometres you travelled, or read the odometer off the dash. The app works out the other.</p>
-    <div class="seg" role="group" style="margin-top:10px"><button data-em="km" aria-pressed="true">Km travelled</button><button data-em="odo" aria-pressed="false">End odometer</button></div>
-    <div id="emKm"><label for="ekm">Kilometres travelled</label><input id="ekm" inputmode="decimal" value="${gps>0?gps:""}" placeholder="e.g. 18"></div>
-    <div id="emOdo" class="hidden"><label for="eeo">End odometer</label><input id="eeo" class="odo" inputmode="numeric" autocomplete="off" value="${gps>0?L.startOdo+gps:""}" placeholder="Reading now"></div>
-    <label for="eso">Start odometer</label><input id="eso" class="odo" inputmode="numeric" autocomplete="off" value="${L.startOdo}">
+    <p class="muted small">Read the odometer off the dash.${gps>0?" It's filled in from GPS — change it if the dash says otherwise.":""}</p>
+    <label for="eeo">End odometer</label><input id="eeo" class="odo" inputmode="numeric" autocomplete="off" value="${gps>0?s+gps:""}" placeholder="Reading now">
     <p class="small muted" id="ecalc" style="margin-top:6px"></p>
-    <p class="small" id="egap" style="color:var(--warn)"></p>
-    <label for="ep">Reason for the trip <span class="muted">${L.type==="business"?"(needed for business trips)":"(optional)"}</span></label><input id="ep" value="${esc(L.purpose)}" placeholder="${L.type==="business"?"e.g. Quote at 12 Smith St":"Optional"}" list="dlPurp">${purposeList()}
+    <p class="small" id="egap" style="color:var(--warn)">${esc(gapNote(gapBefore(L.vid,L.startTs,s))||"")}</p>
+    <label>Trip type</label><div class="seg" role="group"><button class="biz" data-et="business" aria-pressed="${L.type==="business"}">Business</button><button data-et="private" aria-pressed="${L.type!=="business"}">Private</button></div>
+    <label for="ep">Reason for the trip <span class="muted" id="epHint"></span></label><input id="ep" value="${esc(L.purpose)}" list="dlPurp">${purposeList()}
     <p class="small" id="epNote" style="color:var(--warn);margin-top:6px"></p>
     <div class="err" id="eerr"></div>
     <div class="actions"><button class="btn ghost" data-close>Keep driving</button><button class="btn biz" id="esave">Save trip</button></div>
     <button class="linkbtn" id="ediscard">Discard this trip</button>`,
   (root,close)=>{
-    let mode="km";
-    const km=$("#ekm",root), eo=$("#eeo",root), so=$("#eso",root), calc=$("#ecalc",root);
-    // A blank start odometer means "carry on from the last known reading", never 0.
-    const fallback=odoAt(L.vid,L.startTs); so.placeholder=fmtKm(fallback);
-    const startVal=()=> so.value==="" ? fallback : +so.value;
-    const endVal=()=> mode==="km" ? startVal()+Math.round(+km.value||0) : +eo.value;
-    const upd=()=>{ const e=endVal(), s=startVal(); calc.textContent = (so.value===""?`Start odometer blank, so using the last reading of ${fmtKm(fallback)} km. `:"")+((e&&e>=s) ? (mode==="km"?`End odometer will be ${fmtKm(e)} km`:`${fmtKm(e-s)} km travelled`) : "");
-      $("#egap",root).textContent=gapNote(gapBefore(L.vid,L.startTs,s)); };
-    root.querySelectorAll("[data-em]").forEach(b=>b.onclick=()=>{ const e=endVal(); mode=b.dataset.em; root.querySelectorAll("[data-em]").forEach(x=>x.setAttribute("aria-pressed",x===b));
-      $("#emKm",root).classList.toggle("hidden",mode!=="km"); $("#emOdo",root).classList.toggle("hidden",mode!=="odo");
-      if(mode==="odo"&&e>startVal()) eo.value=e; if(mode==="km"&&+eo.value>startVal()) km.value=+eo.value-startVal(); upd(); (mode==="km"?km:eo).focus(); });
-    [km,eo,so].forEach(i=>i.oninput=upd); upd(); km.focus();
+    let type=L.type==="business"?"business":"private";
+    const eo=$("#eeo",root), calc=$("#ecalc",root), ep=$("#ep",root);
+    const upd=()=>{ const e=+eo.value; calc.textContent = `Started at ${fmtKm(s)} km`+(e&&e>=s?` · ${fmtKm(e-s)} km travelled`:""); };
+    const epNote=()=>{ $("#epNote",root).textContent = type==="business"&&!ep.value.trim() ? REASON_NOTE+" You can add it later from the Log." : ""; };
+    const setType=t=>{ type=t; root.querySelectorAll("[data-et]").forEach(x=>x.setAttribute("aria-pressed",x.dataset.et===t));
+      $("#epHint",root).textContent = t==="business"?"(needed for business trips)":"(optional)"; ep.placeholder = t==="business"?"e.g. Quote at 12 Smith St":"Optional"; epNote(); };
+    root.querySelectorAll("[data-et]").forEach(b=>b.onclick=()=>setType(b.dataset.et));
+    eo.oninput=upd; ep.oninput=epNote; setType(type); upd(); eo.focus();
     $("#ediscard",root).onclick=async()=>{ if(await ask("Discard this trip? Nothing will be saved.","Discard trip")){ S.live=null; stopGps(); persist(); close(); render(); toast("Trip discarded"); } };
-    const epNote=()=>{ $("#epNote",root).textContent = L.type==="business"&&!$("#ep",root).value.trim() ? REASON_NOTE+" You can add it later from the Log." : ""; };
-    $("#ep",root).oninput=epNote; epNote();
     $("#esave",root).onclick=()=>{
-      const s=startVal(), e=endVal(), p=$("#ep",root).value.trim();
-      if(!e||e<=s&&mode==="km"&&!(+km.value)){ $("#eerr",root).textContent= mode==="km"?"Enter the kilometres travelled.":"Enter the end odometer."; return; }
-      if(e<s){ $("#eerr",root).textContent="End odometer must be the same as or higher than the start."; return; }
-      const {g}=saveLiveTrip(s,e,Date.now(),p); close(); render();
+      const e=+eo.value, p=ep.value.trim();
+      if(!e){ $("#eerr",root).textContent="Enter the end odometer."; return; }
+      if(e<s){ $("#eerr",root).textContent=`End odometer must be ${fmtKm(s)} km or higher (where the trip started).`; return; }
+      L.type=type; const {g}=saveLiveTrip(s,e,Date.now(),p); close(); render();
       toast(`Trip saved · ${fmtKm(e-s)} km`+(g?` · ${fmtKm(g.km)} km private logged`:""));
     };
   });
