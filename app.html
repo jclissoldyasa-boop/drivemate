@@ -93,6 +93,10 @@ input[type=checkbox]{width:auto}
 @keyframes p{50%{opacity:.25}}
 @media (prefers-reduced-motion: reduce){.pulse{animation:none}}
 .quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.sugg{margin-top:6px;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.sugg-h{padding:8px 12px 4px}
+.sugg button{display:block;width:100%;text-align:left;background:var(--surface);color:var(--ink);border:0;border-top:1px solid var(--line);padding:12px;font:inherit;font-size:15px;min-height:44px}
+.sugg button:active{background:var(--biz-soft)}
 .quick button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 11px;font-size:14px}
 .list{list-style:none;margin:0;padding:0}
 .errlist li{border-bottom:1px solid var(--line);padding:10px 2px}
@@ -1088,7 +1092,7 @@ function drive(){
       <label>This trip is</label>
       <div class="seg" role="group"><button class="biz" data-ltype="business" aria-pressed="${L.type==="business"}">Business</button><button data-ltype="private" aria-pressed="${L.type!=="business"}">Private</button></div>
       <label for="lpurpose">Reason for the trip <span class="muted">${L.type==="business"?"(needed for business trips)":"(optional)"}</span></label>
-      <input id="lpurpose" value="${esc(L.purpose)}" placeholder="e.g. Mow and edge – 12 Smith St, Melton">
+      <input id="lpurpose" value="${esc(L.purpose)}" data-sugg autocomplete="off" placeholder="e.g. Mow and edge – 12 Smith St, Melton">
       ${recentPurposes().length?`<div class="quick">${recentPurposes().map(p=>`<button data-qp="${esc(p)}">${esc(p)}</button>`).join("")}</div>`:""}
       <button class="btn biz block" id="endTrip" style="margin-top:16px;min-height:56px">End trip</button>
       <button class="linkbtn" id="cancelTrip">Discard this trip</button>
@@ -1117,10 +1121,30 @@ function drive(){
   ${donateFoot()}`;
 }
 // Suggestions for reason boxes: the reasons you've used most, newest first.
-function purposeList(){
+// Our own list, not a <datalist>: Android's WebView draws that dropdown see-through and unreadable.
+function purposeOptions(){
   const seen=new Map(); S.trips.slice().sort((a,b)=>b.startTs-a.startTs).forEach(t=>{ const p=String(t.purpose||"").trim(); if(t.type==="business"&&p&&!seen.has(p)&&seen.size<40) seen.set(p,1); });
-  return `<datalist id="dlPurp">${[...seen.keys()].map(p=>`<option value="${esc(p)}">`).join("")}</datalist>`;
+  return [...seen.keys()];
 }
+function purposeList(){ return ""; }
+// Reason boxes marked data-sugg get a solid suggestion panel under them while focused.
+function suggShow(inp){
+  suggHide();
+  const q=inp.value.trim().toLowerCase();
+  const opts=purposeOptions().filter(p=>p.toLowerCase()!==q&&(!q||p.toLowerCase().includes(q))).slice(0,6);
+  if(!opts.length||inp.disabled) return;
+  const box=document.createElement("div"); box.className="sugg"; box.setAttribute("role","listbox");
+  box.innerHTML=`<div class="sugg-h small muted">Use a past reason</div>`+opts.map(p=>`<button type="button" role="option">${esc(p)}</button>`).join("");
+  box.querySelectorAll("button").forEach((b,i)=>{
+    b.onpointerdown=e=>e.preventDefault(); // keep the box focused so the tap lands
+    b.onclick=()=>{ inp.value=opts[i]; inp.dispatchEvent(new Event("input",{bubbles:true})); inp.dispatchEvent(new Event("change",{bubbles:true})); suggHide(); };
+  });
+  (inp.parentElement.classList.contains("row")?inp.parentElement:inp).after(box); box._for=inp;
+}
+function suggHide(){ document.querySelectorAll(".sugg").forEach(b=>b.remove()); }
+document.addEventListener("focusin",e=>{ if(e.target.matches?.("input[data-sugg]")) suggShow(e.target); });
+document.addEventListener("input",e=>{ if(e.target.matches?.("input[data-sugg]")) suggShow(e.target); });
+document.addEventListener("focusout",e=>{ if(e.target.matches?.("input[data-sugg]")) setTimeout(()=>{ const b=document.querySelector(".sugg"); if(b&&b._for!==document.activeElement) suggHide(); },150); });
 function missingReasons(vid){ return S.trips.filter(t=>(!vid||t.vid===vid)&&needsReason(t)).sort((a,b)=>b.startTs-a.startTs); }
 function reasonBanner(vid){
   const n=missingReasons(vid).length; if(!n) return "";
@@ -1135,7 +1159,7 @@ function reasonsSheet(vid){
     ${purposeList()}
     <div id="rsnList">${list.map(t=>`<div class="rsn-row" data-rid="${t.id}">
       <div class="small"><b>${dFmt(t.startTs)}</b> <span class="muted">${tFmt(t.startTs)}${t.endTs?`–${tFmt(t.endTs)}`:""} · ${fmtKm(tripKm(t))} km${S.vehicles.length>1?` · ${esc(veh(t.vid)?.name||"")}`:""}</span></div>
-      <div class="row" style="margin-top:6px"><input aria-label="Reason for the trip on ${dFmt(t.startTs)}" list="dlPurp" placeholder="Reason for the trip"><button class="btn ghost" data-rpriv style="flex:0 0 auto;min-height:44px;padding:0 12px">Private</button></div></div>`).join("")}</div>
+      <div class="row" style="margin-top:6px"><input aria-label="Reason for the trip on ${dFmt(t.startTs)}" data-sugg autocomplete="off" placeholder="Reason for the trip"><button class="btn ghost" data-rpriv style="flex:0 0 auto;min-height:44px;padding:0 12px">Private</button></div></div>`).join("")}</div>
     <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn biz" id="rsnSave">Save reasons</button></div>`,
   (root,close)=>{
     root.querySelectorAll("[data-rpriv]").forEach(b=>b.onclick=()=>{ const row=b.closest("[data-rid]"); const on=row.dataset.priv!=="1"; row.dataset.priv=on?"1":""; b.setAttribute("aria-pressed",on); b.textContent=on?"Private ✓":"Private"; row.querySelector("input").disabled=on; });
@@ -1206,7 +1230,7 @@ function endTripSheet(){
     <p class="small muted" id="ecalc" style="margin-top:6px"></p>
     <p class="small" id="egap" style="color:var(--warn)">${esc(gapNote(gapBefore(L.vid,L.startTs,s))||"")}</p>
     <label>Trip type</label><div class="seg" role="group"><button class="biz" data-et="business" aria-pressed="${L.type==="business"}">Business</button><button data-et="private" aria-pressed="${L.type!=="business"}">Private</button></div>
-    <label for="ep">Reason for the trip <span class="muted" id="epHint"></span></label><input id="ep" value="${esc(L.purpose)}" list="dlPurp">${purposeList()}
+    <label for="ep">Reason for the trip <span class="muted" id="epHint"></span></label><input id="ep" value="${esc(L.purpose)}" data-sugg autocomplete="off">${purposeList()}
     <p class="small" id="epNote" style="color:var(--warn);margin-top:6px"></p>
     <div class="err" id="eerr"></div>
     <div class="actions"><button class="btn ghost" data-close>Keep driving</button><button class="btn biz" id="esave">Save trip</button></div>
@@ -1305,7 +1329,7 @@ async function bulkAction(kind){
   if(kind==="business"||kind==="private"){ list.forEach(t=>t.type=kind); done(`${ts} changed to ${kind==="business"?"Business":"Private"}`); return; }
   if(kind==="delete"){ if(await ask(`Delete ${ts}? This can't be undone.`,`Delete ${ts}`)){ S.trips=S.trips.filter(t=>!sel.has(t.id)); done(`${ts} deleted`); } return; }
   sheet("Set a reason",`<p class="small muted" style="margin-top:12px">Gives all ${ts} the same reason${list.some(t=>t.type!=="business")?" and makes them Business trips":""}.</p>
-    <label for="bkr">Reason for the trip</label><input id="bkr" list="dlPurp" placeholder="e.g. Weekly run – Smith St clients">${purposeList()}
+    <label for="bkr">Reason for the trip</label><input id="bkr" data-sugg autocomplete="off" placeholder="e.g. Weekly run – Smith St clients">${purposeList()}
     <div class="err" id="bkErr"></div>
     <div class="actions"><button class="btn ghost" data-close>Cancel</button><button class="btn biz" id="bkSave">Apply to ${ts}</button></div>`,
   (root,close)=>{ const i=$("#bkr",root); i.focus();
@@ -1323,7 +1347,7 @@ function tripSheet(t){
     ${isNew?`<p class="small" id="tgap" style="color:var(--warn);margin-top:6px"></p>`:""}
     <label for="teo">End odometer</label><input id="teo" class="odo" inputmode="numeric" autocomplete="off" value="${base.endOdo}">
     <label>Trip type</label><div class="seg" role="group"><button class="biz" data-tt="business" aria-pressed="${base.type==="business"}">Business</button><button data-tt="private" aria-pressed="${base.type!=="business"}">Private</button></div>
-    <label for="tp">Reason for the trip <span class="muted">(needed for business trips)</span></label><input id="tp" value="${esc(base.purpose)}" list="dlPurp">${purposeList()}
+    <label for="tp">Reason for the trip <span class="muted">(needed for business trips)</span></label><input id="tp" value="${esc(base.purpose)}" data-sugg autocomplete="off">${purposeList()}
     <div class="err" id="terr"></div>
     <div class="actions">${isNew?`<button class="btn ghost" data-close>Cancel</button>`:`<button class="btn danger" id="tdel">Delete</button>`}<button class="btn biz" id="tsave">Save trip</button></div>`,
   (root,close)=>{
